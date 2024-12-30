@@ -377,6 +377,26 @@ export class StockAnalysisService {
     }
     return true;
   }
+  
+  async quantitativeBuyWithType(type: number, stockData: StockData[], code: string, name: string): Promise<QuantitativeBuyResult | undefined> {
+    // 1: 简单回测策略
+    if(type === 1) {
+      return await this.quantitativeBuy(stockData, code, name);
+    }
+    // 2. 妖股反弹策略
+    if(type === 2) {
+      return await this.quantitativeBuy_shorttime(stockData, code, name);
+    }
+  }
+  
+  async quantitativeSellWithType(type: number, stockData: StockData[], code: string, name: string, buyPrice: number, buyTime: string): Promise<QuantitativeSellResult | undefined> {
+    if(type === 1) {
+      return await this.quantitativeSell(stockData, code, name, buyPrice);
+    }
+    if(type === 2) {
+      return await this.quantitativeSell_shorttime(stockData, code, name, buyPrice, new Date(buyTime));
+    }
+  }
 
   async quantitativeBuy (
     data: StockData[],
@@ -407,12 +427,12 @@ export class StockAnalysisService {
     }
   }
   
-  quantitativeSell(
+  async quantitativeSell(
     data: StockData[],
     code: string,
     name: string,
     buyPrice: number,
-  ): QuantitativeSellResult | undefined {
+  ): Promise<QuantitativeSellResult | undefined> {
     try {
       const averageVolumeLast5Days =
         data.slice(-6, -1).reduce((acc, curr) => acc + curr.volume, 0) / 5;
@@ -477,13 +497,13 @@ export class StockAnalysisService {
     }
   }
   
-  quantitativeSell_shorttime(
+  async quantitativeSell_shorttime(
     data: StockData[],
     code: string,
     name: string,
     buyPrice: number,
     buyTime: number|Date,
-  ): QuantitativeSellResult | undefined {
+  ): Promise<QuantitativeSellResult | undefined> {
     try {
       const buyDate = new Date(buyTime);
       const useData = data.filter((item) => new Date(item.time).getTime() >= buyDate.getTime());

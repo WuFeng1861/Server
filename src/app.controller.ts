@@ -14,13 +14,13 @@ export class AppController {
   }
   
   @Get('startStockRecommend')
-  async startStockRecommend(@Query('update') update?: string): Promise<string> {
-    return this.appService.startStockRecommend(update);
+  async startStockRecommend(@Query('update') update?: string, @Query('recommendType') recommendType?: number): Promise<string> {
+    return this.appService.startStockRecommend(recommendType || 1, update);
   }
   
   @Get('startBackTest')
-  async startBackTest(@Query('startDate') startDate: string): Promise<string> {
-    return this.appService.startBackTest(startDate);
+  async startBackTest(@Query('startDate') startDate: string, @Query('backTestType') backTestType?: number): Promise<string> {
+    return this.appService.startBackTest(startDate, backTestType);
   }
   
   @Get('getMockStockHolding')
@@ -44,5 +44,10 @@ export class AppController {
       throw new HttpException('请传入Cookie', 401);
     }
     await this.appService.setCookie(setCookieDto.cookie);
+  }
+  
+  @Get('getBackTestTypes')
+  async getBackTestTypes(): Promise<string[]> {
+    return this.appService.getBackTestTypes();
   }
 }

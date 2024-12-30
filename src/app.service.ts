@@ -43,6 +43,9 @@ export class AppService {
     private mockStockHoldingService: MockStockHoldingService,
   ) {
   }
+  getBackTestTypes(): string[] {
+    return ["成交量策略", "妖股回弹策略"];
+  }
   
   async getRecommendStocks(): Promise<StockRecommendResponse[]> {
     const cacheKey = 'recommend-stocks';
@@ -280,16 +283,16 @@ export class AppService {
     return cachedData;
   }
   
-  startStockRecommend(update?: string): string {
+  startStockRecommend(recommendType: number, update?: string): string {
     if (this.getIsRunning()) {
       throw new HttpException('正在执行任务，请稍后再试', 401,);
     }
-    this.startStockRecommendTask(update);
+    this.startStockRecommendTask(recommendType, update);
     return '开始计算推荐股票';
     
   }
   
-  async startStockRecommendTask(update?: string): Promise<string> {
+  async startStockRecommendTask(recommendType: number, update?: string): Promise<string> {
     const startTimestamp = new Date().getTime();
     try {
       this.setIsRunning(true, 'start-stock-recommend');
@@ -317,7 +320,7 @@ export class AppService {
           continue;
         }
         lastDate = lastDateTemp;
-        const stockAnalysisBuyResult = await this.stockAnalysisService.quantitativeBuy(stockData, stock.stockid, stock.stockname);
+        const stockAnalysisBuyResult = await this.stockAnalysisService.quantitativeBuyWithType(recommendType, stockData, stock.stockid, stock.stockname);
         if (!stockAnalysisBuyResult) {
           continue;
         }
@@ -347,18 +350,18 @@ export class AppService {
     }
   }
   
-  startBackTest(startDate: string) {
+  startBackTest(startDate: string, backTestTye: number = 1) {
     if (this.getIsRunning()) {
       throw new HttpException('正在执行任务，请稍后再试', 401,);
     }
     if (!startDate) {
       throw new HttpException('请选择开始日期', 401,);
     }
-    this.startBackTestTask(startDate);
+    this.startBackTestTask(startDate, backTestTye);
     return '开始回测';
   }
   
-  private async startBackTestTask(startDate: string) {
+  private async startBackTestTask(startDate: string, backTestTye: number = 1) {
     const startTimestamp = new Date().getTime();
     try {
       this.setIsRunning(true, 'start-back-test');
@@ -371,7 +374,7 @@ export class AppService {
         code: stock.stockid,
         name: stock.stockname,
       }));
-      await this.stockBackTestService.startBackTest(stocks, {startDate: startDate});
+      await this.stockBackTestService.startBackTest(stocks, backTestTye,{startDate: startDate});
     } catch (error) {
       throw error;
     } finally {

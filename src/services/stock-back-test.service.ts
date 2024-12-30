@@ -9,6 +9,7 @@ import {convertSeconds, dateToDayString} from '../utils/tools';
 import {StockAnalysisService} from './stock-anlysis.service';
 import {MockStockHoldingService} from './mock-stock-holding.service';
 import {SomeKey} from '../entities/some-key.entity';
+import {QuantitativeBuyResult, QuantitativeSellResult} from '../interfaces/public-interface';
 
 @Injectable()
 export class StockBackTestService {
@@ -195,6 +196,7 @@ export class StockBackTestService {
   
   async startBackTest(
     stockList: { code: string; name: string }[],
+    backTestType: number,
     config: Partial<StockTestConfig> = {},
   ): Promise<void> {
     const testConfig: StockTestConfig = {
@@ -254,7 +256,7 @@ export class StockBackTestService {
             continue;
           }
       
-          const sellResult = this.stockAnalysisService.quantitativeSell(stockData, holding.stockId, holding.stockName, holding.buyPrice);
+          const sellResult = await this.stockAnalysisService.quantitativeSellWithType(backTestType, stockData, holding.stockId, holding.stockName, holding.buyPrice, holding.buyDate);
           if (sellResult) {
             // 卖出股票
             const sellValue = sellResult.close * holding.amount;
@@ -296,7 +298,7 @@ export class StockBackTestService {
               continue;
             }
             
-            const buyResult = await this.stockAnalysisService.quantitativeBuy(stockData, code, name);
+            const buyResult = await this.stockAnalysisService.quantitativeBuyWithType(backTestType, stockData, code, name);
             if (buyResult) {
               // 买入股票
               const canUseMoney = myRemainingBalance / (testConfig.maxStocksHolds - myStocksHolds);
