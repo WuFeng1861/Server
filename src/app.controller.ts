@@ -1,13 +1,15 @@
-import {Body, Controller, Get, HttpException, HttpStatus, Post, Query} from '@nestjs/common';
-import { AppService } from './app.service';
-import { StockRecommendResponse } from './interfaces/public-interface';
+import {Body, Controller, Get, HttpException, HttpStatus, Post, Query, Req, Res} from '@nestjs/common';
+import {AppService} from './app.service';
+import {StockRecommendResponse} from './interfaces/public-interface';
 import {SetCookieDto} from './dto/set-cookie.dto';
 import {MockStockHolding} from './entities/mock-stock-holding.entity';
+import {BacktestResult} from './entities/backtest-result.entity';
 
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
-
+  constructor(private readonly appService: AppService) {
+  }
+  
   @Get('recommendStocks')
   async getRecommendStocks(): Promise<StockRecommendResponse[]> {
     return this.appService.getRecommendStocks();
@@ -15,17 +17,17 @@ export class AppController {
   
   @Get('startStockRecommend')
   async startStockRecommend(@Query('update') update?: string, @Query('recommendType') recommendType?: number): Promise<string> {
-    return this.appService.startStockRecommend(recommendType || 1, update);
+    return this.appService.startStockRecommend(recommendType ? Number(recommendType) : 1, update === 'true');
   }
   
   @Get('startBackTest')
   async startBackTest(@Query('startDate') startDate: string, @Query('backTestType') backTestType?: number): Promise<string> {
-    return this.appService.startBackTest(startDate, backTestType);
+    return this.appService.startBackTest(startDate, backTestType ? Number(backTestType) : 1);
   }
   
   @Get('getMockStockHolding')
   async getMockStockHolding(@Query('times') times: number): Promise<MockStockHolding[]> {
-    return this.appService.getMockStockHolding(times);
+    return this.appService.getMockStockHolding(Number(times));
   }
   
   @Get('taskStatus')
@@ -49,5 +51,10 @@ export class AppController {
   @Get('getBackTestTypes')
   async getBackTestTypes(): Promise<string[]> {
     return this.appService.getBackTestTypes();
+  }
+  
+  @Get('getBacktestResults')
+  async getBacktestResults(): Promise<BacktestResult[]> {
+    return this.appService.getBackTestResults();
   }
 }

@@ -19,6 +19,7 @@ import {convertSeconds, dateToDayString} from './utils/tools';
 import {StockBackTestService} from './services/stock-back-test.service';
 import {MockStockHolding} from './entities/mock-stock-holding.entity';
 import {MockStockHoldingService} from './services/mock-stock-holding.service';
+import {BacktestResult} from './entities/backtest-result.entity';
 
 @Injectable()
 export class AppService {
@@ -37,6 +38,8 @@ export class AppService {
     private stockRepository: Repository<Stock>,
     @InjectRepository(MockStockHolding)
     private mockStockHoldingRepository: Repository<MockStockHolding>,
+    @InjectRepository(BacktestResult)
+    private backtestResultRepository: Repository<BacktestResult>,
     private cacheService: CacheService,
     private stockAnalysisService: StockAnalysisService,
     private stockBackTestService: StockBackTestService,
@@ -45,6 +48,23 @@ export class AppService {
   }
   getBackTestTypes(): string[] {
     return ["成交量策略", "妖股回弹策略"];
+  }
+  async getBackTestResults(): Promise<BacktestResult[]> {
+    const cacheKey = 'backTest-results';
+    const cachedData = this.cacheService.get<BacktestResult[]>(cacheKey);
+    
+    if (cachedData) {
+      return cachedData;
+    }
+    
+    const results = await this.backtestResultRepository.find({
+      order: {
+        BacktestTimes: 'DESC'
+      }
+    });
+    
+    this.cacheService.set(cacheKey, results);
+    return results;
   }
   
   async getRecommendStocks(): Promise<StockRecommendResponse[]> {
@@ -188,15 +208,19 @@ export class AppService {
   async getMockStockHolding(times: number): Promise<MockStockHolding[]> {
     const cacheKey = `mock-stock-holding-${times}`;
     const cachedData = this.cacheService.get<MockStockHolding[]>(cacheKey);
+    
     if (cachedData) {
       return cachedData;
     }
+    
     const maxTimes = await this.getBackTestTimes();
     if (times > maxTimes) {
       throw new HttpException(`回测次数还未到${times}`, 401,);
     }
+    
     const mockStockHoldings = await this.mockStockHoldingService.findByTimes(times);
     this.cacheService.set(cacheKey, mockStockHoldings, 24 * 60 * 60 * 1000); // Cache for 24 hours
+    
     return mockStockHoldings;
   }
   
@@ -283,16 +307,17 @@ export class AppService {
     return cachedData;
   }
   
-  startStockRecommend(recommendType: number, update?: string): string {
+  startStockRecommend(recommendType: number, update?: boolean): string {
     if (this.getIsRunning()) {
       throw new HttpException('正在执行任务，请稍后再试', 401,);
     }
+    console.log(`开始计算推荐股票 ${recommendType}`);
     this.startStockRecommendTask(recommendType, update);
     return '开始计算推荐股票';
     
   }
   
-  async startStockRecommendTask(recommendType: number, update?: string): Promise<string> {
+  async startStockRecommendTask(recommendType: number, update?: boolean): Promise<string> {
     const startTimestamp = new Date().getTime();
     try {
       this.setIsRunning(true, 'start-stock-recommend');
@@ -329,6 +354,7 @@ export class AppService {
       // 删除数据库中已存在的推荐股票
       await this.stockRecommendRepository.delete({
         date: lastDate,
+        type: recommendType,
       });
       // Save recommend stocks to database
       for (const stock of recommendStocks) {
@@ -337,6 +363,7 @@ export class AppService {
         stockRecommend.name = stock.name;
         stockRecommend.lastPrice = stock.lastPrice;
         stockRecommend.date = lastDate;
+        stockRecommend.type = recommendType;
         await this.stockRecommendRepository.save(stockRecommend);
       }
       // 清除推荐股票缓存
@@ -357,6 +384,7 @@ export class AppService {
     if (!startDate) {
       throw new HttpException('请选择开始日期', 401,);
     }
+    console.log(`开始回测 ${startDate} ${backTestTye}`);
     this.startBackTestTask(startDate, backTestTye);
     return '开始回测';
   }

@@ -17,4 +17,8 @@ export class StockRecommend {
   @Column()
   @Index('index_date')
   date: Date;
+  
+  @Column()
+  @Index('idx_type')
+  type: number = 1;
 }

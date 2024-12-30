@@ -38,4 +38,8 @@ export class MockStockHolding {
   @Column()
   @Index('idx_times')
   times: number;
+  
+  @Column()
+  @Index('idx_type')
+  type: number = 1;
 }

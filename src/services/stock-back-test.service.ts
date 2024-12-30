@@ -1,4 +1,4 @@
-import {Injectable, Logger} from '@nestjs/common';
+import {Injectable} from '@nestjs/common';
 import { StockData, StockCache, StockHolding } from '../interfaces/stock-data.interface';
 import { StockTestConfig } from '../interfaces/stock-test-config.interface';
 import {InjectRepository} from '@nestjs/typeorm';
@@ -9,7 +9,8 @@ import {convertSeconds, dateToDayString} from '../utils/tools';
 import {StockAnalysisService} from './stock-anlysis.service';
 import {MockStockHoldingService} from './mock-stock-holding.service';
 import {SomeKey} from '../entities/some-key.entity';
-import {QuantitativeBuyResult, QuantitativeSellResult} from '../interfaces/public-interface';
+import {BacktestResult} from '../entities/backtest-result.entity';
+import {CacheService} from './cache.service';
 
 @Injectable()
 export class StockBackTestService {
@@ -20,10 +21,10 @@ export class StockBackTestService {
   private holdId = 0;
   
   private defaultConfig: StockTestConfig = {
-    startBalance: 1133*10000*2,
-    maxStocksHolds: 1133,
+    startBalance: 10000,
+    maxStocksHolds: 5,
     feeRate: 0.001,
-    minRemainingBalanceToBuy: 10000,
+    minRemainingBalanceToBuy: 1000,
     startDate: '2016-07-07',
   };
   
@@ -36,9 +37,12 @@ export class StockBackTestService {
     private stockRepository: Repository<Stock>,
     @InjectRepository(SomeKey)
     private someKeyRepository: Repository<SomeKey>,
+    @InjectRepository(BacktestResult)
+    private backtestResultRepository: Repository<BacktestResult>,
+    private cacheService: CacheService,
   ) {}
   
-  private async createBuyRecord(stockId: string, stockName: string, price: number, amount: number, date: string, times: number): Promise<StockHolding> {
+  private async createBuyRecord(stockId: string, stockName: string, price: number, amount: number, date: string, times: number, type: number): Promise<StockHolding> {
     this.holdId++;
     const buyRecord: StockHolding = {
       id: this.holdId,
@@ -55,7 +59,8 @@ export class StockBackTestService {
       buyPrice: buyRecord.buyPrice,
       amount: buyRecord.amount,
       buyDate: new Date(buyRecord.buyDate),
-      times
+      times,
+      type
     });
     return buyRecord;
   }
@@ -218,6 +223,8 @@ export class StockBackTestService {
     let myStocksHolds = 0;
     let myTotalFees = 0;
     let myTotalProfit = 0;
+    let transactionCount = 0;
+    let endTime = testConfig.startDate;
     let myHolds: StockHolding[] = [];
     const finishStockDate: Record<string, string> = {};
     const checkFinishStockDate = (code: string, date: string): boolean => {
@@ -239,7 +246,7 @@ export class StockBackTestService {
           console.log('All stock data loaded');
           return;
         }
-    
+        endTime = todayDate;
         // Update data for all stocks
         for (const {code} of stockList) {
           this.getNextStockData(code, todayDate);
@@ -312,7 +319,8 @@ export class StockBackTestService {
               myTotalFees += buyValue * testConfig.feeRate;
               myRemainingBalance -= (buyValue * testConfig.feeRate + buyValue);
               // 添加买入记录
-              const buyRecord = await this.createBuyRecord(code, name, buyResult.lastPrice, buyAmount, stockData[stockData.length - 1].time, times);
+              transactionCount++;
+              const buyRecord = await this.createBuyRecord(code, name, buyResult.lastPrice, buyAmount, stockData[stockData.length - 1].time, times, backTestType);
               myHolds.push(buyRecord);
               console.log(`${todayDate}: 买入 ${code}-${name} ${buyAmount} 股, 价格 ${buyResult.lastPrice}, 成本 ${buyValue}, 手续费 ${buyValue * testConfig.feeRate}, 剩余 ${myRemainingBalance}`);
             }
@@ -335,6 +343,18 @@ export class StockBackTestService {
     console.log(`数据加载完成，开始回测：耗时：${convertSeconds((new Date().getTime() - startTimeForTest.getTime()) / 1000)}`);
     await checkTodayData(testConfig.startDate);
     await this.setTimes(times);
+    const result = await this.backtestResultRepository.create({
+      StrategyTypeID: backTestType,
+      BacktestStartDate: new Date(testConfig.startDate),
+      BacktestEndDate: new Date(new Date().setDate(new Date(endTime).getDate() - 1)),
+      TransactionCount: transactionCount,
+      TotalProfit: myTotalProfit,
+      BacktestTimes: times,
+    })
+    await this.backtestResultRepository.save(result);
+    console.log(`创建回测结果 ${result.ID}`);
+    const cacheKey = 'backTest-results';
+    this.cacheService.delete(cacheKey);
     console.log(`回测结束，总耗时：${convertSeconds((new Date().getTime() - startTimeForTest.getTime()) / 1000)}, 最大持仓数量 ${maxHoldLens}, 最大盈利 ${maxWin}, 最大亏损 ${maxLoss}`);
   }
 }

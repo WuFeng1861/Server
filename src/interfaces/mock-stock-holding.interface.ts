@@ -6,6 +6,7 @@ export interface CreateMockStockHoldingDto {
   amount: number;
   buyDate: Date;
   times: number;
+  type: number;
 }
 
 export interface UpdateMockStockHoldingDto {

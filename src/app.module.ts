@@ -13,6 +13,7 @@ import {StockAnalysisService} from './services/stock-anlysis.service';
 import {StockBackTestService} from './services/stock-back-test.service';
 import {MockStockHoldingService} from './services/mock-stock-holding.service';
 import {MockStockHolding} from './entities/mock-stock-holding.entity';
+import {BacktestResult} from './entities/backtest-result.entity';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import {MockStockHolding} from './entities/mock-stock-holding.entity';
         SomeKey,
         AllStocks,
         MockStockHolding,
+        BacktestResult
       ],
       synchronize: false,
     }),
@@ -42,6 +44,7 @@ import {MockStockHolding} from './entities/mock-stock-holding.entity';
       SomeKey,
       AllStocks,
       MockStockHolding,
+      BacktestResult
     ]),
   ],
   controllers: [AppController],
