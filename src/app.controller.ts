@@ -1,7 +1,7 @@
-import {Body, Controller, Get, HttpException, HttpStatus, Post, Query, Req, Res} from '@nestjs/common';
+import {Body, Controller, Get, HttpException, Post, Query} from '@nestjs/common';
 import {AppService} from './app.service';
 import {StockRecommendResponse} from './interfaces/public-interface';
-import {SetCookieDto} from './dto/set-cookie.dto';
+import {SetCookieDto, SetTokenDto} from './dto/set-cookie.dto';
 import {MockStockHolding} from './entities/mock-stock-holding.entity';
 import {BacktestResult} from './entities/backtest-result.entity';
 
@@ -46,6 +46,14 @@ export class AppController {
       throw new HttpException('请传入Cookie', 401);
     }
     await this.appService.setCookie(setCookieDto.cookie);
+  }
+  
+  @Post('setToken')
+  async setToken(@Body() setTokenDto: SetTokenDto): Promise<void> {
+    if (!setTokenDto.token) {
+      throw new HttpException('请传入Token', 401);
+    }
+    await this.appService.setToken(setTokenDto.token);
   }
   
   @Get('getBackTestTypes')

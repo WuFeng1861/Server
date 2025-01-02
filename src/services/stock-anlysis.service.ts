@@ -6,7 +6,6 @@ import { Repository } from "typeorm";
 import { PriceRange } from "../entities/price-range.entity";
 import {QuantitativeBuyResult, QuantitativeSellResult} from '../interfaces/public-interface';
 import {StockData} from '../interfaces/stock-data.interface';
-import {dateToDayString} from '../utils/tools';
 
 interface StockMonthMinMax {
   minPrice: number;
@@ -25,10 +24,10 @@ export class StockAnalysisService {
   private readonly THREE_MONTHS_TIME = 3 * 30 * 24 * 60 * 60 * 1000; // 3个月时间戳
   private readonly ONE_MONTH_TIME = 30 * 24 * 60 * 60 * 1000; // 1月时间戳
   private readonly ONE_DAY_TIME = 24 * 60 * 60 * 1000;  // 1天时间戳
-  private readonly SHORT_BUY_PRICE_LOW_PERCENT = 0.7; // 短线买入价格与最高价的比例
-  private readonly SHORT_BUY_TIME_RANGE = 20 * 24 * 60 * 60 * 1000; // 短线价格倍数变化的指定时间范围
+  private readonly SHORT_BUY_PRICE_LOW_PERCENT = 0.6; // 短线买入价格与最高价的比例
+  private readonly SHORT_BUY_TIME_RANGE = 26; // 短线价格倍数变化的指定时间范围
   private readonly SHORT_SELL_PRICE_MIN_GAP_PERCENT = 2; // 短线流短期内价格变化最小倍数
-  private readonly DO_JI_RANGE = 0.01; // 十字星开盘价和收盘价的差距
+  private readonly DO_JI_RANGE = 0.005; // 十字星开盘价和收盘价的差距
 
   constructor(
     private cacheService: CacheService,
@@ -312,20 +311,36 @@ export class StockAnalysisService {
     name: string,
     multiple: number,
     rangeDays: number,
-  ): {maxPrice: number, minPrice: number} {
-    const useData = data
-      .filter((item) =>
-          new Date(item.time).getTime() >= new Date(data[data.length - 1].time).getTime() - rangeDays * this.ONE_DAY_TIME,
-      );
-    const minPrice = Math.min(...useData.map((item) => item.low));
-    const maxPrice = Math.max(...useData.map((item) => item.high));
+  ): {maxPrice: number, minPrice: number, maxPriceTime: string, minPriceTime: string, maxIndex: number, minIndex: number} {
+    const useData = data.slice(-rangeDays)
+    // 遍历指定天数的最高价和最低价和最高价时间
+    let maxPrice = 0;
+    let minPrice = Infinity;
+    let maxPriceTime = "";
+    let minPriceTime = "";
+    let maxIndex = 0;
+    let minIndex = 0;
+    for (let i = 0; i < useData.length; i++) {
+      const item = useData[i];
+      if (item.high > maxPrice) {
+        maxPrice = item.high;
+        maxPriceTime = item.time;
+        maxIndex = data.length - rangeDays + i;
+      }
+      if (item.low < minPrice) {
+        minPrice = item.low;
+        minPriceTime = item.time;
+        minIndex = data.length - rangeDays + i;
+      }
+    }
+    // console.log(`${name} (${code}) - 最近${rangeDays}天最高价：${maxPrice} (${maxPriceTime})，最低价：${minPrice} (${minPriceTime})`,);
 
     if (maxPrice / minPrice <= multiple) {
       this.selfError(
         `${name} (${code}) - 最近${rangeDays}天最高价和最低价的差距不超过${multiple}倍`,
       );
     }
-    return {maxPrice, minPrice};
+    return {maxPrice, minPrice, maxPriceTime, minPriceTime, maxIndex, minIndex};
   }
   
   private checkPriceNow(
@@ -335,6 +350,9 @@ export class StockAnalysisService {
     priceTarget: number,
     compareType: "less" | "greater" = "less",
   ): void {
+    if (code === "002593") {
+      console.log('1');
+    }
     const useData = data[data.length - 1];
     if (useData.close < priceTarget && compareType === "greater") {
       this.selfError(`${name} (${code}) - 当前价格低于目标价格`);
@@ -376,6 +394,22 @@ export class StockAnalysisService {
       return false;
     }
     return true;
+  }
+  
+  // 判断从指定日期到最后是否全部不上涨
+  private checkNotUpFromDate(data: StockData[], code: string, name: string, startDay: number|Date): void {
+    const useData = data
+      .filter((item) =>
+          new Date(item.time).getTime() >= new Date(startDay).getTime(),
+        );
+    let lastDayClose = useData[0].close;
+    for (const item of useData) {
+      if (item.close > lastDayClose) {
+        this.selfError(`${name} (${code}) - 从${startDay}开始未上涨`);
+        return;
+      }
+      lastDayClose = item.close;
+    }
   }
   
   async quantitativeBuyWithType(type: number, stockData: StockData[], code: string, name: string): Promise<QuantitativeBuyResult | undefined> {
@@ -479,8 +513,14 @@ export class StockAnalysisService {
     name: string,
   ): Promise<QuantitativeBuyResult | undefined> {
     try {
-      const { maxPrice } = this.checkPriceRange(data, code, name, this.SHORT_SELL_PRICE_MIN_GAP_PERCENT, this.SHORT_BUY_TIME_RANGE);
+      const { maxPrice, maxPriceTime, minPrice, minPriceTime, maxIndex } = this.checkPriceRange(data, code, name, this.SHORT_SELL_PRICE_MIN_GAP_PERCENT, this.SHORT_BUY_TIME_RANGE);
       this.checkPriceNow(data, code, name, maxPrice * this.SHORT_BUY_PRICE_LOW_PERCENT, "less");
+      // 最后时间和最高价时间不超过6交易日
+      if(data.length - maxIndex > 6) {
+        this.selfError(`${name} (${code}) - 最高价时间距离最后一天时间超过6个交易日`);
+      }
+      // this.checkNotUpFromDate(data, code, name, new Date(maxPriceTime));
+      console.log(code, name,`最高价：${maxPrice} (${maxPriceTime})，最低价：${minPrice} (${minPriceTime})` );
       return {
         code,
         name,
@@ -523,6 +563,4 @@ export class StockAnalysisService {
       }
     }
   }
-  
-  
 }

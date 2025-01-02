@@ -6,5 +6,5 @@ export class SomeKey {
   id: number;
 
   @Column('json', { nullable: true })
-  data: { cookie: string, times: number };
+  data: { cookie: string, times: number, token: string };
 }

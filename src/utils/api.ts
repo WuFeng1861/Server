@@ -4,6 +4,7 @@ import {StockData} from '../interfaces/stock-data.interface';
  * @param dataStr - Raw stock data string
  * @returns Array of formatted stock data
  */
+const tokenReset = '1735563692377_1735634105533_69xQMoXbQMeqyleAPo5Vatj3iFT1VCGap6VKI1zeE3/Rvoqwmv2YmiXcE4C1S2gc2QeObIJU6kZgbrtP1fGoxFAnGZ+TqH03zav53LPiiqDBJrn/ee0ToMoD17M0lrI9VBMENt+vBj/ngDn8EbTqQ1RLkWHdN7jVkGm9p5SNjTs8Aqny98E4oHDLEdimGr+hiv/KHqbj1Py3G/rkaCQIai525CGgAvkICUJ3edy2urYeAzuMXEg/FzKnmW5hMIK/tSyw05Hple1UTUex/gWalLoN71CApDP266ykG+LlQD1XZwxhEFoo6I1cRITORCQ9TWdwN3e70SSxuNCxagux24igX2FJ3aU0xOECmy5Y+LhXPiMS/fR8MZ7UDRcamayodjoD5CeqDBIr7LaHo39oFQ==';
 
 function formatData(dataStr: string): StockData[] {
   if (!dataStr) {
@@ -30,13 +31,16 @@ function formatData(dataStr: string): StockData[] {
  * @param code - Stock code
  * @param name - Stock name
  * @param cookie - Authentication cookie
+ * @param token
  * @returns Stock market data as string
  */
 export async function getStockAllQuotation(
   code: string,
   name: string,
   cookie: string,
+  token: string,
 ): Promise<StockData[]> {
+  console.log(`获取 ${name}(${code}) 的所有日K线数据`);
   try {
     const response = await fetch(
       `https://finance.pae.baidu.com/vapi/v1/getquotation?srcid=5353&pointType=string&group=quotation_kline_ab&query=${code}&code=${code}&market_type=ab&newFormat=1&name=${encodeURI(
@@ -46,8 +50,7 @@ export async function getStockAllQuotation(
         headers: {
           accept: 'application/vnd.finance-web.v1+json',
           'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-          'acs-token':
-            '1734786102557_1734832253764_erJiF3PHzGqP7DiEv0VuT2/CsFVQ07z9LNKl9o8XiBeOrq0RCsCXeCsWrmtW+4X7qaYZGRv9WTeEjNjDwpynvfo2eDtpAEjDF+So+1bNAdvQnHBOV2VmXwT8yLyK4iFZiaR1QAWG/gQxWbcooM1Oz5BIbU9kZucFomqXV7EO/SGTU8y9voKsz4PeR+vrHPQzOadProvrxDC/N+Q0lRZQFham3O8+yzEVgZBxWkjrBJ0WJnA1ciWRMhXOxaKqUBVk6aCv52g50fRHK/JkZ9hXqu22ssDwDniUf9eZO3d/RO44oEezTT6aWDHmBBkmom0SFNx3zpwTdRm48DSLYScAaf81MPc8Oxpg/OqOcH92XhVRDa0qpsgBYvzNNNNvLuvsgZd7T1A7LuWvCWR/xCmaW3N4vHghw/0t8XuyQxuSpWqTIDo6V55u3Azkb0mKkDcCzalmZ0etB2JyeL5mY9PTlbvbQ7zSV20s0p//jS+bV5A=',
+          'acs-token':token || tokenReset,
           'cache-control': 'no-cache',
           pragma: 'no-cache',
           'sec-ch-ua':
@@ -77,12 +80,14 @@ export async function getStockAllQuotation(
  * @param code - Stock code
  * @param name - Stock name
  * @param cookie - Authentication cookie
+ * @param token
  * @returns Stock market data as string
  */
 export async function getStock30DaysQuotation(
   code: string,
   name: string,
   cookie: string,
+  token: string,
 ): Promise<StockData[]> {
   const today = new Date();
   let todayStr = today.toLocaleDateString().replace(/\//g, '-');
@@ -92,7 +97,7 @@ export async function getStock30DaysQuotation(
     tomorrow.setDate(tomorrow.getDate() + 1);
     todayStr = tomorrow.toLocaleDateString().replace(/\//g, '-');
   }
-
+  console.log(`获取 ${name}(${code}) 的近30日K线数据`);
   try {
     const response = await fetch(
       `https://finance.pae.baidu.com/vapi/v1/getquotation?srcid=5353&pointType=string&group=quotation_kline_ab&query=${code}&code=${code}&market_type=ab&newFormat=1&name=${encodeURI(
@@ -102,8 +107,7 @@ export async function getStock30DaysQuotation(
         headers: {
           accept: 'application/vnd.finance-web.v1+json',
           'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-          'acs-token':
-            '1734958914343_1734974407635_qXYbCHxPpFDlp2Y3RrQ5INgFYwuUmbaofwPGiLCzEUhUHUb0JrQ0shxPnkxLGzKiNa+IXDxHFu091gvUueiafMdYfxLyPOho35abjJyBzLWrI37P7TE2K1fGhoOHqOYt4GCB9eCF/IAkmURpfQoeQhjOFg5LHHonkmART4YE+ZN+iOYHr+oVujM7tK/7p9Lbp4SRDnZ6oXvRpV6Ww8UfSz92qGq2zpftvyCZLr0zmOeYVqczxLXvlI7k/rtGeG8yUO90d3BC2YgUrYER9vl66BaTHjag4FGSno9WyQFHH57u2gfGLPbsvIpoNdZjc/4fyZs5OiQiiQsSPBdK4PT9J+VfGMlzKmZFyZY9kKyycdZeKZZjzrZjOq+2mU8XTUh3zS9vr2Fycw6/IuVe9bxwWVmTLTfbxwvAIUQMNi88HQrleUVyCUg+E/jA/BXfklyEAV/b7N9tuRBKq9ogVb5nSCK4LS/gkECxYpSKrtvl1V0=',
+          'acs-token': token || tokenReset,
           'cache-control': 'no-cache',
           pragma: 'no-cache',
           'sec-ch-ua':

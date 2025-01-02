@@ -21,10 +21,10 @@ export class StockBackTestService {
   private holdId = 0;
   
   private defaultConfig: StockTestConfig = {
-    startBalance: 10000,
-    maxStocksHolds: 5,
+    startBalance: 2*3173*100000,
+    maxStocksHolds: 3173,
     feeRate: 0.001,
-    minRemainingBalanceToBuy: 1000,
+    minRemainingBalanceToBuy: 100000,
     startDate: '2016-07-07',
   };
   
@@ -216,7 +216,7 @@ export class StockBackTestService {
     const times = await this.getTimes();
     this.emptyCodeCache = {};
     this.emptyLength = 0;
-    this.holdId = await this.mockStockHoldingService.getMaxId();
+    this.holdId = (await this.mockStockHoldingService.getMaxId()) || 0;
     console.log(`最大id ${this.holdId}`);
     let myTotalValue = testConfig.startBalance;
     let myRemainingBalance = testConfig.startBalance;
@@ -283,6 +283,9 @@ export class StockBackTestService {
               maxLoss = myTotalProfit;
             }
           }
+        }
+        if (myStocksHolds === 0) {
+          console.log(`${todayDate}: 无持仓`);
         }
         // 打印卖出后的状态
         console.log(`${todayDate}: 持有股票数量 ${myStocksHolds}, 余额 ${myRemainingBalance}, 总盈亏 ${myTotalProfit}, 总手续费 ${myTotalFees}`)

@@ -133,6 +133,30 @@ export class AppService {
     }
     return cookie;
   }
+  async getTokenData(): Promise<string> {
+    const cacheKey = 'token-data';
+    let token: string;
+  
+    // Try to get cookie from cache first
+    token = this.cacheService.get<string>(cacheKey);
+  
+    // If not in cache, try database
+    if (!token) {
+      const someKey = await this.someKeyRepository.findOne({
+        where: {id: 1},
+      });
+    
+      if (!someKey || !someKey.data) {
+        throw new HttpException(
+          '没有Token信息,请先设置 Token',
+          401,
+        );
+      }
+      token = someKey.data.token;
+      this.cacheService.set(cacheKey, token, 24 * 60 * 60 * 1000); // Cache for 24 hours
+    }
+    return token;
+  }
   
   getRunningStatus(): string {
     const runningNameObj = {
@@ -191,6 +215,25 @@ export class AppService {
     }
   }
   
+  async setToken(token: string): Promise<void> {
+    try {
+      // 先查询出来原来的数据，看你有没有其他的属性
+      const someKey = await this.someKeyRepository.findOne({
+        where: {id: 1},
+      });
+      someKey.data.token = token;
+      await this.someKeyRepository.update(1, {
+        data: someKey.data,
+      });
+      this.cacheService.set('token-data', token, 24 * 60 * 60 * 1000); // 24 hours
+    } catch (error) {
+      throw new HttpException(
+        'Failed to set token',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+  
   async getBackTestTimes(): Promise<number> {
     const someKey = await this.someKeyRepository.findOne({
       where: {id: 1},
@@ -232,6 +275,7 @@ export class AppService {
     const cacheKey = `stock-all-data-${stockid}`;
     const cachedData = this.cacheService.get<StockData[]>(cacheKey) || [];
     const cookie = await this.getCookieData();
+    const token = await this.getTokenData();
     let updateData: StockData[] = [];
     if (cachedData.length === 0) {
       const stockData = await this.stockRepository.find({
@@ -255,10 +299,10 @@ export class AppService {
       }
     }
     if (update && cachedData.length === 0) {
-      updateData = await getStockAllQuotation(stockid, stockname, cookie);
+      updateData = await getStockAllQuotation(stockid, stockname, cookie, token);
     }
     if (update && cachedData.length > 0) {
-      updateData = await getStock30DaysQuotation(stockid, stockname, cookie);
+      updateData = await getStock30DaysQuotation(stockid, stockname, cookie, token);
     }
     for (let i = 0; i < updateData.length; i++) {
       const item = updateData[i];
