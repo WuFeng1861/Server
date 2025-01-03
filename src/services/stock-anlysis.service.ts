@@ -28,7 +28,7 @@ export class StockAnalysisService {
   private readonly SHORT_BUY_TIME_RANGE = 26; // 短线价格倍数变化的指定时间范围
   private readonly SHORT_SELL_PRICE_MIN_GAP_PERCENT = 2; // 短线流短期内价格变化最小倍数
   private readonly DO_JI_RANGE = 0.005; // 十字星开盘价和收盘价的差距
-  private readonly LOW_VOLUME_EXPANSION_PRICE_PERCENT = 0.25; // 低位成交量放大流价格位置百分比
+  private readonly LOW_VOLUME_EXPANSION_PRICE_PERCENT = 1.25; // 低位成交量放大流价格位置百分比
   private readonly LOW_VOLUME_EXPANSION_VOLUME_RATIO = 1.5; // 低位成交量放大流成交量倍数
   private readonly LOW_VOLUME_EXPANSION_VOLUME_RATIO_MAX = 2; // 低位成交量放大流成交量倍数最大值
   private readonly LOW_VOLUME_EXPANSION_PRICE_RANGE = 0.005; // 低位成交量放大流价格波动范围
@@ -583,20 +583,24 @@ export class StockAnalysisService {
     }
   }
   
+  // 检查是否是ST
+  private checkIsST(name: string): boolean {
+    return name.includes('ST');
+  }
+  
   // 检查价格是否处于指定天数的低位百分比
   private checkPriceInLowPercentWithDays(data: StockData[], percent: number, days: number): boolean {
     const useData = data.slice(-days);
     const minPrice = Math.min(...useData.map(item => item.low));
-    const maxPrice = Math.max(...useData.map(item => item.high));
     const lastPrice = data[data.length - 1].close;
-    return lastPrice <= minPrice + (maxPrice - minPrice) * percent;
+    return lastPrice <= minPrice * percent;
   }
   
   // 检查价格是否高于前N天的平均价
-  private checkPriceHigherThanAverage(data: StockData[], days: number): boolean {
+  private checkPriceHigherThanAverage(data: StockData[], days: number, percent: number = 1): boolean {
     const useData = data.slice(-days);
     const averagePrice = useData.reduce((acc, cur) => acc + cur.close, 0) / useData.length;
-    return data[data.length - 1].close > averagePrice;
+    return data[data.length - 1].close > averagePrice * percent;
   }
   
   // 检查成交量是否是前N天的最大值
@@ -643,7 +647,12 @@ export class StockAnalysisService {
     name: string,
   ): Promise<QuantitativeBuyResult | undefined> {
     try {
-      // 1. 当前股票的价格处于30交易日的地位25%
+      // 0. 股票名称中不包含ST
+      if (this.checkIsST(name)) {
+        this.selfError(`${name} (${code}) - 股票名称中包含ST`);
+      }
+      
+      // 1. 当前股票的价格低于30交易日的最低价的125%
       if (!this.checkPriceInLowPercentWithDays(data, this.LOW_VOLUME_EXPANSION_PRICE_PERCENT, 30)) {
         this.selfError(`${name} (${code}) - 价格不处于30交易日的低位25%`);
       }
@@ -674,6 +683,17 @@ export class StockAnalysisService {
         this.selfError(`${name} (${code}) - 不是第一次成交量高于20交易日的1.5倍`);
       }
       
+      // 7. 当前价格不高于历史500交易日收盘价均价的70%
+      if (this.checkPriceHigherThanAverage(data, 500, 0.7)) {
+        this.selfError(`${name} (${code}) - 当前价格高于历史500交易日收盘价均价的70%`);
+      }
+      
+      // 8. 120交易日内，当最低价在最高价之前的时候，最高价不超过最低价的145%
+      const {minPrice, maxPrice, minIndex, maxIndex} = this.checkPriceRange(data, code, name, 0, 120);
+      if (minIndex < maxIndex && maxPrice > minPrice * 1.45) {
+        this.selfError(`${name} (${code}) - 120交易日内，当最低价在最高价之前的时候，最高价超过最低价的160%`);
+      }
+      
       return {
         code,
         name,
@@ -701,17 +721,20 @@ export class StockAnalysisService {
       
       // 1. 最后一天的收盘价和开盘价的差距小于开盘价*0.005
       if (this.checkLastDayDoji(data[data.length - 1])) {
+        console.log(`卖出符合条件：${name} (${code}) - 最后一天是十字星`);
         return {code, name, close: lastData.close};
       }
       
       // 2. 最高价与开盘价和收盘价中高的一个的相差绝对值大于开盘价和收盘价相差绝对值的1.5倍
       // 或者最低价与开盘价和收盘价中低的一个的相差绝对值大于开盘价和收盘价相差绝对值的1.5倍
       if (this.checkPriceGapRatio(lastData, this.LOW_VOLUME_EXPANSION_PRICE_GAP_RATIO)) {
+        console.log(`卖出符合条件：${name} (${code}) - 上下影线超过1.5倍`);
         return {code, name, close: lastData.close};
       }
       
       // 3. 当前价格在5交易日的收盘平均价以下
       if (!this.checkPriceHigherThanAverage(data, 5)) {
+        console.log(`卖出符合条件：${name} (${code}) - 当前价格低于5交易日的收盘平均价`);
         return {code, name, close: lastData.close};
       }
       
@@ -720,6 +743,7 @@ export class StockAnalysisService {
         const previousData = data.slice(-41, -21);
         const maxVolume = Math.max(...previousData.map(item => item.volume));
         if (lastData.volume > maxVolume * 2) {
+          console.log(`卖出符合条件：${name} (${code}) - 当天成交量是20交易日内最高，且大于前21-40交易日的最高的2倍`);
           return {code, name, close: lastData.close};
         }
       }
