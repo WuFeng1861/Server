@@ -21,8 +21,15 @@ export class AppController {
   }
   
   @Get('startBackTest')
-  async startBackTest(@Query('startDate') startDate: string, @Query('backTestType') backTestType?: number): Promise<string> {
-    return this.appService.startBackTest(startDate, backTestType ? Number(backTestType) : 1);
+  async startBackTest(
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('backTestType') backTestType?: number,
+    @Query('maxStocksHolds') maxStocksHolds?: number,
+    @Query('stopBuyRatio') stopBuyRatio?: number,
+    @Query('initialPerAmount') initialPerAmount?: number,
+  ): Promise<string> {
+    return this.appService.startBackTest(startDate, endDate, Number(maxStocksHolds), Number(stopBuyRatio), Number(initialPerAmount), backTestType ? Number(backTestType) : 1);
   }
   
   @Get('getMockStockHolding')

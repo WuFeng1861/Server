@@ -26,6 +26,7 @@ export class StockBackTestService {
     feeRate: 0.001,
     minRemainingBalanceToBuy: 100000,
     startDate: '2016-07-07',
+    endDate: dateToDayString(new Date(new Date().getTime() - 24 * 60 * 60 * 1000)),// 默认昨天的日期
   };
   
   constructor(
@@ -242,6 +243,10 @@ export class StockBackTestService {
     
     const checkTodayData = async (todayDate: string) => {
       try {
+        if (new Date(todayDate) > new Date(testConfig.endDate)) {
+          console.log('测试结束');
+          return;
+        }
         if (this.emptyLength >= maxEmptyLength) {
           console.log('All stock data loaded');
           return;
@@ -294,6 +299,11 @@ export class StockBackTestService {
         if (myStocksHolds < testConfig.maxStocksHolds &&
           myRemainingBalance >= testConfig.minRemainingBalanceToBuy) {
           for (const {code, name} of stockList) {
+            if (myStocksHolds >= testConfig.maxStocksHolds ||
+              myRemainingBalance < testConfig.minRemainingBalanceToBuy *
+              (testConfig.maxStocksHolds - myStocksHolds)) {
+              break;
+            }
             if (this.emptyCodeCache[code]) continue;
         
             if (myStocksHolds >= testConfig.maxStocksHolds ||

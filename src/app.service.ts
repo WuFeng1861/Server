@@ -47,7 +47,7 @@ export class AppService {
   ) {
   }
   getBackTestTypes(): string[] {
-    return ["成交量策略", "妖股回弹策略", "低位成交量放大策略"];
+    return ["成交量策略", "妖股回弹策略", "低位成交量放大策略", "三红增量"];
   }
   async getBackTestResults(): Promise<BacktestResult[]> {
     const cacheKey = 'backTest-results';
@@ -421,7 +421,7 @@ export class AppService {
     }
   }
   
-  startBackTest(startDate: string, backTestTye: number = 1) {
+  startBackTest(startDate: string, endDate: string, maxStocksHolds: number, stopBuyRatio: number, initialPerAmount: number,backTestTye: number = 1) {
     if (this.getIsRunning()) {
       throw new HttpException('正在执行任务，请稍后再试', 401,);
     }
@@ -429,11 +429,13 @@ export class AppService {
       throw new HttpException('请选择开始日期', 401,);
     }
     console.log(`开始回测 ${startDate} ${backTestTye}`);
-    this.startBackTestTask(startDate, backTestTye);
+    const minRemainingBalanceToBuy = stopBuyRatio * initialPerAmount / 100;
+    const startBalance = initialPerAmount * maxStocksHolds;
+    this.startBackTestTask(startDate, endDate,maxStocksHolds, minRemainingBalanceToBuy, startBalance, backTestTye);
     return '开始回测';
   }
   
-  private async startBackTestTask(startDate: string, backTestTye: number = 1) {
+  private async startBackTestTask(startDate: string, endDate: string, maxStocksHolds: number, minRemainingBalanceToBuy: number, startBalance: number, backTestTye: number = 1) {
     const startTimestamp = new Date().getTime();
     try {
       this.setIsRunning(true, 'start-back-test');
@@ -446,7 +448,13 @@ export class AppService {
         code: stock.stockid,
         name: stock.stockname,
       }));
-      await this.stockBackTestService.startBackTest(stocks, backTestTye,{startDate: startDate});
+      await this.stockBackTestService.startBackTest(stocks, backTestTye,{
+        startDate: startDate,
+        endDate: endDate,
+        maxStocksHolds: maxStocksHolds,
+        minRemainingBalanceToBuy: minRemainingBalanceToBuy,
+        startBalance: startBalance,
+      });
     } catch (error) {
       throw error;
     } finally {

@@ -33,6 +33,10 @@ export class StockAnalysisService {
   private readonly LOW_VOLUME_EXPANSION_VOLUME_RATIO_MAX = 2; // 低位成交量放大流成交量倍数最大值
   private readonly LOW_VOLUME_EXPANSION_PRICE_RANGE = 0.005; // 低位成交量放大流价格波动范围
   private readonly LOW_VOLUME_EXPANSION_PRICE_GAP_RATIO = 1.5; // 低位成交量放大流价格波动倍数
+  private readonly THREE_RED_VOLUME_RATIO = 1.7; // 三红增量成交量倍数
+  private readonly THREE_RED_PROFIT_RATIO = 1.15; // 三红增量盈利比例
+  private readonly THREE_RED_LOSS_RATIO = 0.95; // 三红增量止损比例
+  private readonly THREE_RED_TIME_RANGE = 120; // 三红增量最大持有时间
   
   constructor(
     private cacheService: CacheService,
@@ -430,6 +434,10 @@ export class StockAnalysisService {
     if (type === 3) {
       return await this.quantitativeBuy_lowVolumeExpansion(stockData, code, name);
     }
+    // 4. 三红增量策略
+    if(type === 4) {
+      return await this.quantitativeBuy_threeRedVolume(stockData, code, name);
+    }
   }
   
   async quantitativeSellWithType(type: number, stockData: StockData[], code: string, name: string, buyPrice: number, buyTime: string): Promise<QuantitativeSellResult | undefined> {
@@ -442,6 +450,10 @@ export class StockAnalysisService {
     // 3. 低位成交量放大流策略
     if (type === 3) {
       return await this.quantitativeSell_lowVolumeExpansion(stockData, code, name, buyPrice);
+    }
+    // 4. 三红增量策略
+    if(type === 4) {
+      return await this.quantitativeSell_threeRedVolume(stockData, code, name, buyPrice, new Date(buyTime));
     }
   }
   
@@ -754,6 +766,88 @@ export class StockAnalysisService {
       } else {
         console.error('Unexpected error during quantitativeSell_lowVolumeExpansion analysis:', e);
         throw new Error('Unexpected error during quantitativeSell_lowVolumeExpansion analysis');
+      }
+    }
+  }
+  
+  // 三红增量买入
+  async quantitativeBuy_threeRedVolume(
+    data: StockData[],
+    code: string,
+    name: string,
+  ): Promise<QuantitativeBuyResult | undefined> {
+    try {
+      // 检查最近三天的数据
+      const lastThreeDays = data.slice(-3);
+      const previousDays = data.slice(-25, -3);
+      
+      // 1. 检查最近三个交易日的收盘价都大于开盘价
+      for (const day of lastThreeDays) {
+        if (day.close <= day.open) {
+          this.selfError(`${name} (${code}) - 最近三天不都是收盘价大于开盘价`);
+        }
+      }
+      
+      // 2. 计算前22个交易日的平均成交量
+      const avgVolume = previousDays.reduce((sum, day) => sum + day.volume, 0) / previousDays.length;
+      
+      // 检查最近三天的成交量是否都大于平均成交量的2倍
+      for (const day of lastThreeDays) {
+        if (day.volume <= avgVolume * this.THREE_RED_VOLUME_RATIO) {
+          this.selfError(`${name} (${code}) - 最近三天成交量不都大于前22天平均成交量的2倍`);
+        }
+      }
+      
+      return {
+        code,
+        name,
+        lastPrice: data[data.length - 1].close,
+      };
+    } catch (e) {
+      if ((e as any).errorSelfType === true) {
+        // Silently handle expected errors
+      } else {
+        console.error("Unexpected error during quantitativeBuy_threeRedVolume analysis:", e);
+        throw new Error("Unexpected error during quantitativeBuy_threeRedVolume analysis");
+      }
+    }
+  }
+  
+  // 三红增量卖出
+  async quantitativeSell_threeRedVolume(
+    data: StockData[],
+    code: string,
+    name: string,
+    buyPrice: number,
+    buyTime: Date,
+  ): Promise<QuantitativeSellResult | undefined> {
+    try {
+      const lastPrice = data[data.length - 1].close;
+      
+      // 1. 当前价格高于买入价格的1.1倍
+      if (lastPrice >= buyPrice * this.THREE_RED_PROFIT_RATIO) {
+        console.log(`卖出符合条件：${name} (${code}) - 当前价格高于买入价格的${this.THREE_RED_PROFIT_RATIO}倍`);
+        return { code, name, close: lastPrice };
+      }
+      
+      // 2. 当前价格低于买入价格的0.93倍
+      if (lastPrice <= buyPrice * this.THREE_RED_LOSS_RATIO) {
+        console.log(`卖出符合条件：${name} (${code}) - 当前价格低于买入价格的${this.THREE_RED_LOSS_RATIO}倍`);
+        return { code, name, close: lastPrice };
+      }
+      
+      // 3. 买入超过120天,不是交易日
+      if (new Date(data[data.length - 1].time).getTime() - buyTime.getTime() >= this.THREE_RED_TIME_RANGE * this.ONE_DAY_TIME) {
+        console.log(`卖出符合条件：${name} (${code}) - 买入时间超过120天`);
+        return { code, name, close: lastPrice };
+      }
+      
+    } catch (e) {
+      if ((e as any).errorSelfType === true) {
+        // Silently handle expected errors
+      } else {
+        console.error("Unexpected error during quantitativeSell_threeRedVolume analysis:", e);
+        throw new Error("Unexpected error during quantitativeSell_threeRedVolume analysis");
       }
     }
   }

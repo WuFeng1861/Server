@@ -4,4 +4,5 @@ export interface StockTestConfig {
   feeRate: number;
   minRemainingBalanceToBuy: number;
   startDate: string;
+  endDate: string;
 }
