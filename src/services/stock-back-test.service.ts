@@ -359,7 +359,7 @@ export class StockBackTestService {
     const result = await this.backtestResultRepository.create({
       StrategyTypeID: backTestType,
       BacktestStartDate: new Date(testConfig.startDate),
-      BacktestEndDate: new Date(new Date().setDate(new Date(endTime).getDate() - 1)),
+      BacktestEndDate: testConfig.endDate,
       TransactionCount: transactionCount,
       TotalProfit: myTotalProfit,
       BacktestTimes: times,

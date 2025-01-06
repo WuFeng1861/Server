@@ -38,8 +38,8 @@ export class StockAnalysisService {
   private readonly THREE_RED_PROFIT_RATIO = 1.15; // 三红增量盈利比例
   private readonly THREE_RED_LOSS_RATIO = 0.95; // 三红增量止损比例
   private readonly THREE_RED_TIME_RANGE = 120; // 三红增量最大持有时间
-  private readonly RSI_BUY = 25; // RSI买入阈值
-  private readonly RSI_SELL = 75; // RSI卖出阈值
+  private readonly RSI_BUY = 5; // RSI买入阈值
+  private readonly RSI_SELL = 75; // RSI卖出阈值 >=85不好 后续可以测试75-85之间的情况
   
   constructor(
     private cacheService: CacheService,
