@@ -14,6 +14,7 @@ interface StockMonthMinMax {
 
 @Injectable()
 export class StockAnalysisService {
+  private readonly STOCK_MIN_TOP_PRICE = 0.0996;// 涨停最小幅度9.96%
   private readonly MONTH_GROWTH_RATIO = 3; // 月涨幅倍数
   private readonly THREE_MONTHS_LOW_PERCENT = 0.35; // 当前价格处于最近3个月的最高最低的区间
   private readonly VOLUME_RATIO = 0.2; // 30天平均成交量的和最近5天的平均成交量的比例
@@ -37,6 +38,8 @@ export class StockAnalysisService {
   private readonly THREE_RED_PROFIT_RATIO = 1.15; // 三红增量盈利比例
   private readonly THREE_RED_LOSS_RATIO = 0.95; // 三红增量止损比例
   private readonly THREE_RED_TIME_RANGE = 120; // 三红增量最大持有时间
+  private readonly RSI_BUY = 25; // RSI买入阈值
+  private readonly RSI_SELL = 75; // RSI卖出阈值
   
   constructor(
     private cacheService: CacheService,
@@ -379,6 +382,35 @@ export class StockAnalysisService {
     return false;
   }
   
+  // 检查股票当天是否跌幅超过指定比例
+  private checkPriceDownOverRatio(
+    data: StockData[],
+    multiple: number,
+  ): boolean {
+    const useData = data[data.length - 1];
+    const yesterdayData = data[data.length - 2];
+    return (useData.close - yesterdayData.close) / yesterdayData.close < multiple * -1;
+  }
+  
+  // 收盘价和开盘价差距超过指定比例
+  private checkPriceOpenDiff(
+    data: StockData[],
+    multiple: number,
+  ): boolean {
+    const useData = data[data.length - 1];
+    return (useData.close - useData.open) / useData.open < multiple;
+  }
+  
+  private checkPriceLowerThanPreviousDays(
+    data: StockData[],
+    previousDays: number,
+    multiple: number,
+  ): boolean {
+    const useData = data[data.length - 1];
+    const previousData = data[data.length - previousDays - 1];
+    return useData.close < previousData.close * multiple;
+  }
+  
   private checkHasDayUp(data: StockData[], code: string, name: string, startDay: number | Date | null = null): void {
     let useData = data;
     if (startDay) {
@@ -435,8 +467,12 @@ export class StockAnalysisService {
       return await this.quantitativeBuy_lowVolumeExpansion(stockData, code, name);
     }
     // 4. 三红增量策略
-    if(type === 4) {
+    if (type === 4) {
       return await this.quantitativeBuy_threeRedVolume(stockData, code, name);
+    }
+    // 5. RSI 策略
+    if (type === 5) {
+      return await this.quantitativeBuy_rsi(stockData, code, name);
     }
   }
   
@@ -452,8 +488,12 @@ export class StockAnalysisService {
       return await this.quantitativeSell_lowVolumeExpansion(stockData, code, name, buyPrice);
     }
     // 4. 三红增量策略
-    if(type === 4) {
+    if (type === 4) {
       return await this.quantitativeSell_threeRedVolume(stockData, code, name, buyPrice, new Date(buyTime));
+    }
+    // 5. RSI 策略
+    if (type === 5) {
+      return await this.quantitativeSell_rsi(stockData, code, name);
     }
   }
   
@@ -615,6 +655,18 @@ export class StockAnalysisService {
     return data[data.length - 1].close > averagePrice * percent;
   }
   
+  // 检查价格是否连续多天高于前N天的平均价
+  private checkPriceHigherThanAverageWithDays(data: StockData[], days: number, continuousDays: number, percent: number = 1): boolean {
+    for (let i = 0; i < continuousDays; i++) {
+      const useData = data.slice(-days - i, i ? -i : undefined);
+      const averagePrice = useData.reduce((acc, cur) => acc + cur.close, 0) / useData.length;
+      if (useData[useData.length - 1 - i].close < averagePrice * percent) {
+        return false;
+      }
+    }
+    return true;
+  }
+  
   // 检查成交量是否是前N天的最大值
   private checkVolumeIsMaxInDays(data: StockData[], days: number): boolean {
     const useData = data.slice(-days - 1, -1);
@@ -650,6 +702,51 @@ export class StockAnalysisService {
     const highGap = Math.abs(high - Math.max(open, close));
     const lowGap = Math.abs(low - Math.min(open, close));
     return highGap > priceGap * ratio || lowGap > priceGap * ratio;
+  }
+  
+  // 价格在指定交易日内是否涨幅超过指定百分比
+  private checkPriceUpPercentWithDays(data: StockData[], percent: number, days: number): boolean {
+    const useData = data.slice(-days);
+    const lastPrice = data[data.length - 1].close;
+    const firstPrice = useData[0].close;
+    const priceUpPercent = (lastPrice - firstPrice) / firstPrice;
+    return priceUpPercent >= percent;
+  }
+  
+  // 检测最后一天是否涨停
+  private checkIsTop(data: StockData[]): boolean {
+    const lastPrice = data[data.length - 1].close;
+    const yesterdayPrice = data[data.length - 2].close;
+    const priceGap = lastPrice - yesterdayPrice;
+    return priceGap >= yesterdayPrice * this.STOCK_MIN_TOP_PRICE;
+  }
+  
+  private calculateRSI(stockData: StockData[], days: number = 14): number {
+    if (days < 1 || stockData.length < days) {
+      this.selfError('RSI计算参数错误：' + `days=${days}, stockData.length=${stockData.length}`);
+    }
+    const data = stockData.slice(-days);
+    const upMove = data.map((item, index) => {
+      if (index === 0) {
+        return 0;
+      }
+      const prevClose = data[index - 1].close;
+      const upMove = item.close - prevClose;
+      return upMove > 0 ? upMove : 0;
+    });
+    const downMove = data.map((item, index) => {
+      if (index === 0) {
+        return 0;
+      }
+      const prevClose = data[index - 1].close;
+      const downMove = prevClose - item.close;
+      return downMove > 0 ? downMove : 0;
+    });
+    const upMoveAvg = upMove.slice(0, days).reduce((acc, cur) => acc + cur, 0) / days;
+    const downMoveAvg = downMove.slice(0, days).reduce((acc, cur) => acc + cur, 0) / days;
+    const rs = upMoveAvg / downMoveAvg;
+    const rsi = 100 - 100 / (1 + rs);
+    return rsi;
   }
   
   // 低位成交量放大流买入
@@ -731,9 +828,9 @@ export class StockAnalysisService {
     try {
       const lastData = data[data.length - 1];
       
-      // 1. 最后一天的收盘价和开盘价的差距小于开盘价*0.005
-      if (this.checkLastDayDoji(data[data.length - 1])) {
-        console.log(`卖出符合条件：${name} (${code}) - 最后一天是十字星`);
+      // 1. 最后一天的收盘价和开盘价的差距小于开盘价*0.005 三天内涨幅25%
+      if (this.checkLastDayDoji(data[data.length - 1]) && this.checkPriceUpPercentWithDays(data, 0.25, 3)) {
+        console.log(`卖出符合条件：${name} (${code}) - 最后一天是十字星且三天内涨幅25%`);
         return {code, name, close: lastData.close};
       }
       
@@ -745,19 +842,37 @@ export class StockAnalysisService {
       }
       
       // 3. 当前价格在5交易日的收盘平均价以下
-      if (!this.checkPriceHigherThanAverage(data, 5)) {
+      if (!this.checkPriceHigherThanAverageWithDays(data, 5, 3)) {
         console.log(`卖出符合条件：${name} (${code}) - 当前价格低于5交易日的收盘平均价`);
         return {code, name, close: lastData.close};
       }
       
-      // 4. 当天成交量是20交易日内最高，且大于前21-40交易日的最高的2倍
+      // 4. 当天成交量是20交易日内最高，且大于前21-40交易日的最高的2倍 且不是涨停
       if (this.checkVolumeIsMaxInDays(data, 20)) {
         const previousData = data.slice(-41, -21);
         const maxVolume = Math.max(...previousData.map(item => item.volume));
-        if (lastData.volume > maxVolume * 2) {
-          console.log(`卖出符合条件：${name} (${code}) - 当天成交量是20交易日内最高，且大于前21-40交易日的最高的2倍`);
+        if (lastData.volume > maxVolume * 2 && !this.checkIsTop(data)) {
+          console.log(`卖出符合条件：${name} (${code}) - 当天成交量是20交易日内最高，且大于前21-40交易日的最高的2倍, 且不是涨停`);
           return {code, name, close: lastData.close};
         }
+      }
+      
+      // 5. 股票当天下跌超过5%
+      if (this.checkPriceDownOverRatio(data, 0.05)) {
+        console.log(`卖出符合条件：${name} (${code}) - 股票当天下跌超过5%`);
+        return {code, name, close: lastData.close};
+      }
+      
+      // 6. 当天的（收盘价-开盘价）/开盘价>=4.5%
+      if (this.checkPriceOpenDiff(data, 0.045)) {
+        console.log(`卖出符合条件：${name} (${code}) - 当天的（收盘价-开盘价）/开盘价>=4.5%`);
+        return {code, name, close: lastData.close};
+      }
+      
+      // 7. 当天收盘价低于2交易日前收盘价的93%
+      if (this.checkPriceLowerThanPreviousDays(data, 2, 0.93)) {
+        console.log(`卖出符合条件：${name} (${code}) - 当天收盘价低于2交易日前收盘价的93%`);
+        return {code, name, close: lastData.close};
       }
       
     } catch (e) {
@@ -807,8 +922,8 @@ export class StockAnalysisService {
       if ((e as any).errorSelfType === true) {
         // Silently handle expected errors
       } else {
-        console.error("Unexpected error during quantitativeBuy_threeRedVolume analysis:", e);
-        throw new Error("Unexpected error during quantitativeBuy_threeRedVolume analysis");
+        console.error('Unexpected error during quantitativeBuy_threeRedVolume analysis:', e);
+        throw new Error('Unexpected error during quantitativeBuy_threeRedVolume analysis');
       }
     }
   }
@@ -827,27 +942,76 @@ export class StockAnalysisService {
       // 1. 当前价格高于买入价格的1.1倍
       if (lastPrice >= buyPrice * this.THREE_RED_PROFIT_RATIO) {
         console.log(`卖出符合条件：${name} (${code}) - 当前价格高于买入价格的${this.THREE_RED_PROFIT_RATIO}倍`);
-        return { code, name, close: lastPrice };
+        return {code, name, close: lastPrice};
       }
       
       // 2. 当前价格低于买入价格的0.93倍
       if (lastPrice <= buyPrice * this.THREE_RED_LOSS_RATIO) {
         console.log(`卖出符合条件：${name} (${code}) - 当前价格低于买入价格的${this.THREE_RED_LOSS_RATIO}倍`);
-        return { code, name, close: lastPrice };
+        return {code, name, close: lastPrice};
       }
       
       // 3. 买入超过120天,不是交易日
       if (new Date(data[data.length - 1].time).getTime() - buyTime.getTime() >= this.THREE_RED_TIME_RANGE * this.ONE_DAY_TIME) {
         console.log(`卖出符合条件：${name} (${code}) - 买入时间超过120天`);
-        return { code, name, close: lastPrice };
+        return {code, name, close: lastPrice};
       }
       
     } catch (e) {
       if ((e as any).errorSelfType === true) {
         // Silently handle expected errors
       } else {
-        console.error("Unexpected error during quantitativeSell_threeRedVolume analysis:", e);
-        throw new Error("Unexpected error during quantitativeSell_threeRedVolume analysis");
+        console.error('Unexpected error during quantitativeSell_threeRedVolume analysis:', e);
+        throw new Error('Unexpected error during quantitativeSell_threeRedVolume analysis');
+      }
+    }
+  }
+  
+  // RSI 30买入
+  async quantitativeBuy_rsi(
+    data: StockData[],
+    code: string,
+    name: string,
+  ): Promise<QuantitativeBuyResult | undefined> {
+    try {
+      // 1. 最近14天的RSI值均值小于30
+      const rsi14 = this.calculateRSI(data.slice(-14));
+      if (rsi14 > this.RSI_BUY) {
+        this.selfError(`${name} (${code}) - 最近14天的RSI值均值大于${this.RSI_BUY}`);
+      }
+      return {
+        code,
+        name,
+        lastPrice: data[data.length - 1].close,
+      };
+    } catch (e) {
+      if ((e as any).errorSelfType === true) {
+        // Silently handle expected errors
+      } else {
+        console.error('Unexpected error during quantitativeBuy_rsi30 analysis:', e);
+        throw new Error('Unexpected error during quantitativeBuy_rsi30 analysis');
+      }
+    }
+  }
+  
+  // RSI 70卖出
+  async quantitativeSell_rsi(
+    data: StockData[],
+    code: string,
+    name: string,
+  ): Promise<QuantitativeSellResult | undefined> {
+    try {
+      const rsi14 = this.calculateRSI(data.slice(-14));
+      if (rsi14 >= this.RSI_SELL) {
+        console.log(`卖出符合条件：${name} (${code}) - 最近14天的RSI值均值大于等于${this.RSI_SELL}`);
+        return {code, name, close: data[data.length - 1].close};
+      }
+    } catch (e) {
+      if ((e as any).errorSelfType === true) {
+        // Silently handle expected errors
+      } else {
+        console.error('Unexpected error during quantitativeSell_rsi70 analysis:', e);
+        throw new Error('Unexpected error during quantitativeSell_rsi70 analysis');
       }
     }
   }
