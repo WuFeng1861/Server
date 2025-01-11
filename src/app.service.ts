@@ -47,7 +47,7 @@ export class AppService {
   ) {
   }
   getBackTestTypes(): string[] {
-    return ["成交量策略", "妖股回弹策略", "低位成交量放大策略", "三红增量", "RSI策略"];
+    return ["成交量策略", "妖股回弹策略", "低位成交量放大策略", "三红增量", "RSI策略", "RSI-T策略"];
   }
   async getBackTestResults(): Promise<BacktestResult[]> {
     const cacheKey = 'backTest-results';

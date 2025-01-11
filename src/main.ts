@@ -17,5 +17,6 @@ async function bootstrap() {
     credentials: true,
   });
   await app.listen(3000);
+  console.log('程序已启动，监听端口 3000: http://localhost:3000');
 }
 bootstrap();

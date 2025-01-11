@@ -6,6 +6,7 @@ import {Repository} from 'typeorm';
 import {PriceRange} from '../entities/price-range.entity';
 import {QuantitativeBuyResult, QuantitativeSellResult} from '../interfaces/public-interface';
 import {StockData} from '../interfaces/stock-data.interface';
+import {calcRsi} from '../utils/tools';
 
 interface StockMonthMinMax {
   minPrice: number;
@@ -28,7 +29,8 @@ export class StockAnalysisService {
   private readonly SHORT_BUY_PRICE_LOW_PERCENT = 0.6; // 短线买入价格与最高价的比例
   private readonly SHORT_BUY_TIME_RANGE = 26; // 短线价格倍数变化的指定时间范围
   private readonly SHORT_SELL_PRICE_MIN_GAP_PERCENT = 2; // 短线流短期内价格变化最小倍数
-  private readonly DO_JI_RANGE = 0.005; // 十字星开盘价和收盘价的差距
+  // private readonly DO_JI_RANGE = 0.005; // 十字星开盘价和收盘价的差距
+  private readonly DO_JI_RANGE = 0.1; // 十字星开盘价和收盘价的差距
   private readonly LOW_VOLUME_EXPANSION_PRICE_PERCENT = 1.25; // 低位成交量放大流价格位置百分比
   private readonly LOW_VOLUME_EXPANSION_VOLUME_RATIO = 1.5; // 低位成交量放大流成交量倍数
   private readonly LOW_VOLUME_EXPANSION_VOLUME_RATIO_MAX = 2; // 低位成交量放大流成交量倍数最大值
@@ -40,6 +42,16 @@ export class StockAnalysisService {
   private readonly THREE_RED_TIME_RANGE = 120; // 三红增量最大持有时间
   private readonly RSI_BUY = 5; // RSI买入阈值
   private readonly RSI_SELL = 75; // RSI卖出阈值 >=85不好 后续可以测试75-85之间的情况
+  private readonly RSI_T_BUY = 15; // RSI-T买入阈值
+  private readonly RSI_T_SELL = 75; // RSI-T卖出阈值
+  private readonly RSI_T_STOP_LOSS = 0.93; // RSI-T止损比例
+  private readonly RSI_T_TAKE_PROFIT = 1.15; // RSI-T止盈比例
+  private readonly RSI_T_DOJI_COUNT = 3; // RSI-T十字星数量
+  private readonly RSI_T_UP_T_COUNT = 2; // RSI-T上T数量
+  private readonly RSI_T_UP_T_DAYS = 15; // RSI-T上T检查天数
+  private readonly RSI_T_PRICE_RANGE = 0.15; // RSI-T价格区间比例
+  private readonly RSI_T_PRICE_RANGE_YEARS = 3; // RSI-T价格区间年数
+  private readonly T_SHAPE_RATIO = 0.2; // T形态比例
   
   constructor(
     private cacheService: CacheService,
@@ -431,10 +443,85 @@ export class StockAnalysisService {
   
   // 十字星判定
   private checkLastDayDoji(data: StockData): boolean {
-    if (Math.abs(data.open - data.close) > this.DO_JI_RANGE * data.open) {
+    // if (Math.abs(data.open - data.close) > this.DO_JI_RANGE * data.open) {
+    // if (Math.abs(data.open - data.close) > this.DO_JI_RANGE * (data.high - data.low)) {
+    //   return false;
+    // }
+    // return true;
+  
+    // 解析数据
+    const {open, close, high, low} = data;
+  
+    // 计算影线长度
+    const upperShadow = high - Math.max(open, close);
+    const lowerShadow = Math.min(open, close) - low;
+  
+    // 计算开盘价和收盘价的差值
+    const priceDifference = Math.abs(open - close);
+  
+    // 计算价格波动范围
+    const priceRange = high - low;
+  
+    // 定义影线长度和价格差的相对阈值
+    const shadowThreshold = 0.3; // 影线长度占价格波动范围的30%
+    const priceDiffThreshold = 0.05; // 价格差占价格波动范围的5%
+    if (priceRange > 0 && (priceDifference / priceRange) <= priceDiffThreshold && (upperShadow / priceRange) >= shadowThreshold && (lowerShadow / priceRange) >= shadowThreshold) {
+      return true;
+    } else {
       return false;
     }
-    return true;
+  }
+  
+  // 检查是否是上T形态
+  private checkIsUpTShape(data: StockData): boolean {
+    // const {open, close, high, low} = data;
+    // const priceGap = Math.abs(open - close);
+    // const highGap = Math.abs(high - low);
+    // return priceGap < highGap * this.T_SHAPE_RATIO;
+    // 解析数据
+    const {open, close, high, low} = data;
+  
+    // 计算影线长度
+    const upperShadow = high - Math.max(open, close);
+    // 计算开盘价和收盘价的差值
+    const priceDifference = Math.abs(open - close);
+    // 计算价格波动范围
+    const priceRange = high - low;
+    // 定义影线长度和价格差的相对阈值
+    const shadowThreshold = 0.70; // 影线长度占价格波动范围的80%
+    const priceDiffThreshold = 0.2; // 价格差占价格波动范围的10%
+    if (
+      priceRange > 0 &&
+      (priceDifference / priceRange) <= priceDiffThreshold &&
+      (upperShadow / priceRange) >= shadowThreshold
+    ) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+  
+  // 检查是否是下T形态
+  private checkIsDownTShape(data: StockData): boolean {
+    // const {open, close, high, low} = data;
+    // const priceGap = Math.abs(open - close);
+    // const lowGap = Math.abs(low - high);
+    // return priceGap < lowGap * this.T_SHAPE_RATIO;
+    // 解析数据
+    const {open, close, high, low} = data;
+  
+    // 计算影线长度
+    const lowerShadow = Math.min(open, close) - low;
+    // 计算开盘价和收盘价的差值
+    const priceDifference = Math.abs(open - close);
+    // 计算价格波动范围
+    const priceRange = high - low;
+    // 定义影线长度和价格差的相对阈值
+    const shadowThreshold = 0.7; // 影线长度占价格波动范围的80%
+    const priceDiffThreshold = 0.2; // 价格差占价格波动范围的10%
+    return priceRange > 0 &&
+      (priceDifference / priceRange) <= priceDiffThreshold &&
+      (lowerShadow / priceRange) >= shadowThreshold;
   }
   
   // 判断从指定日期到最后是否全部不上涨
@@ -474,6 +561,11 @@ export class StockAnalysisService {
     if (type === 5) {
       return await this.quantitativeBuy_rsi(stockData, code, name);
     }
+  
+    // 6. RSI-T策略
+    if (type === 6) {
+      return await this.quantitativeBuy_rsiT(stockData, code, name);
+    }
   }
   
   async quantitativeSellWithType(type: number, stockData: StockData[], code: string, name: string, buyPrice: number, buyTime: string): Promise<QuantitativeSellResult | undefined> {
@@ -494,6 +586,10 @@ export class StockAnalysisService {
     // 5. RSI 策略
     if (type === 5) {
       return await this.quantitativeSell_rsi(stockData, code, name);
+    }
+    // 6. RSI-T策略
+    if (type === 6) {
+      return await this.quantitativeSell_rsiT(stockData, code, name, buyPrice, new Date(buyTime));
     }
   }
   
@@ -721,32 +817,39 @@ export class StockAnalysisService {
     return priceGap >= yesterdayPrice * this.STOCK_MIN_TOP_PRICE;
   }
   
-  private calculateRSI(stockData: StockData[], days: number = 14): number {
-    if (days < 1 || stockData.length < days) {
+  private calculateRSI(stockData: StockData[], code: string|null = null, days: number = 12): number {
+    if (days < 1 || stockData.length < days + 1) {
       this.selfError('RSI计算参数错误：' + `days=${days}, stockData.length=${stockData.length}`);
     }
-    const data = stockData.slice(-days);
-    const upMove = data.map((item, index) => {
-      if (index === 0) {
-        return 0;
-      }
-      const prevClose = data[index - 1].close;
-      const upMove = item.close - prevClose;
-      return upMove > 0 ? upMove : 0;
-    });
-    const downMove = data.map((item, index) => {
-      if (index === 0) {
-        return 0;
-      }
-      const prevClose = data[index - 1].close;
-      const downMove = prevClose - item.close;
-      return downMove > 0 ? downMove : 0;
-    });
-    const upMoveAvg = upMove.slice(0, days).reduce((acc, cur) => acc + cur, 0) / days;
-    const downMoveAvg = downMove.slice(0, days).reduce((acc, cur) => acc + cur, 0) / days;
-    const rs = upMoveAvg / downMoveAvg;
-    const rsi = 100 - 100 / (1 + rs);
-    return rsi;
+    const useData = stockData.slice(-days-40);
+    const rsiList = calcRsi(useData.map(item => item.close))
+    return rsiList[rsiList.length-1];
+  }
+  
+  // 检查最近N天内上T的数量
+  private checkUpTCount(data: StockData[], days: number): number {
+    return data.slice(-days).filter(day => this.checkIsUpTShape(day)).length;
+  }
+  
+  // 检查最近N天内十字星的数量
+  private checkDojiCount(data: StockData[]): number {
+    return data.filter(day => this.checkLastDayDoji(day)).length;
+  }
+  
+  // 检查价格是否在3年区间的低位
+  private checkPriceInThreeYearRange(data: StockData[], code: string, name: string): void {
+    const lastData = data[data.length - 1];
+    const threeYearsAgo = new Date();
+    threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - this.RSI_T_PRICE_RANGE_YEARS);
+    
+    const threeYearData = data.filter(item => new Date(item.time) >= threeYearsAgo);
+    const maxPrice = Math.max(...threeYearData.map(item => item.high));
+    const minPrice = Math.min(...threeYearData.map(item => item.low));
+    const priceRange = maxPrice - minPrice;
+    
+    if (lastData.close > minPrice + priceRange * this.RSI_T_PRICE_RANGE) {
+      this.selfError(`${name} (${code}) - 当前价格高于3年区间低位15%`);
+    }
   }
   
   // 低位成交量放大流买入
@@ -975,7 +1078,7 @@ export class StockAnalysisService {
   ): Promise<QuantitativeBuyResult | undefined> {
     try {
       // 1. 最近14天的RSI值均值小于30
-      const rsi14 = this.calculateRSI(data.slice(-14));
+      const rsi14 = this.calculateRSI(data);
       if (rsi14 > this.RSI_BUY) {
         this.selfError(`${name} (${code}) - 最近14天的RSI值均值大于${this.RSI_BUY}`);
       }
@@ -1001,7 +1104,7 @@ export class StockAnalysisService {
     name: string,
   ): Promise<QuantitativeSellResult | undefined> {
     try {
-      const rsi14 = this.calculateRSI(data.slice(-14));
+      const rsi14 = this.calculateRSI(data);
       if (rsi14 >= this.RSI_SELL) {
         console.log(`卖出符合条件：${name} (${code}) - 最近14天的RSI值均值大于等于${this.RSI_SELL}`);
         return {code, name, close: data[data.length - 1].close};
@@ -1012,6 +1115,105 @@ export class StockAnalysisService {
       } else {
         console.error('Unexpected error during quantitativeSell_rsi70 analysis:', e);
         throw new Error('Unexpected error during quantitativeSell_rsi70 analysis');
+      }
+    }
+  }
+  
+  // RSI-T买入策略
+  async quantitativeBuy_rsiT(
+    data: StockData[],
+    code: string,
+    name: string,
+  ): Promise<QuantitativeBuyResult | undefined> {
+    try {
+      // 1. RSI低于10
+      const rsi14 = this.calculateRSI(data, code);
+      if (rsi14 > this.RSI_T_BUY) {
+        this.selfError(`${name} (${code}) - RSI值${rsi14}大于${this.RSI_T_BUY}`);
+      }
+      console.log(`${code} ${name} ${data[data.length - 1].time} RSI值${rsi14}小于${this.RSI_T_BUY}`, rsi14);
+      
+      // 2. 当天是下T形态
+      if (!this.checkIsDownTShape(data[data.length - 1])) {
+        this.selfError(`${name} (${code}) - 当天不是下T形态`);
+      }
+      
+      // 3. 价格在3年区间的低位
+      this.checkPriceInThreeYearRange(data, code, name);
+  
+      // 4. 15日内不允许出现上T
+      if (this.checkUpTCount(data.slice(-this.RSI_T_UP_T_DAYS), this.RSI_T_UP_T_DAYS) >= 1) {
+        this.selfError(`${name} (${code}) - 15日内出现过上T`);
+      }
+      
+      return {
+        code,
+        name,
+        lastPrice: data[data.length - 1].close,
+      };
+    } catch (e) {
+      if ((e as any).errorSelfType === true) {
+        // Silently handle expected errors
+      } else {
+        console.error('Unexpected error during quantitativeBuy_rsiT analysis:', e);
+        throw new Error('Unexpected error during quantitativeBuy_rsiT analysis');
+      }
+    }
+  }
+  
+  // RSI-T卖出策略
+  async quantitativeSell_rsiT(
+    data: StockData[],
+    code: string,
+    name: string,
+    buyPrice: number,
+    buyTime: Date,
+  ): Promise<QuantitativeSellResult | undefined> {
+    try {
+      const lastPrice = data[data.length - 1].close;
+      const buyDateIndex = data.findIndex(item => new Date(item.time).getTime() === buyTime.getTime());
+      if (buyDateIndex === -1) {
+        this.selfError(`${name} (${code}) - 未找到买入日期`);
+      }
+      const dataAfterBuy = data.slice(buyDateIndex);
+      
+      // 1. RSI大于75
+      const rsi14 = this.calculateRSI(data);
+      if (rsi14 >= this.RSI_T_SELL) {
+        console.log(`卖出符合条件：${name} (${code}) - RSI值${rsi14}大于等于${this.RSI_T_SELL}`);
+        return {code, name, close: lastPrice};
+      }
+      
+      // 2. 价格低于买入价格的93%
+      // if (lastPrice <= buyPrice * this.RSI_T_STOP_LOSS) {
+      //   console.log(`卖出符合条件：${name} (${code}) - 当前价格低于买入价格的${this.RSI_T_STOP_LOSS * 100}%`);
+      //   return {code, name, close: lastPrice};
+      // }
+      
+      // 3. 价格高于买入价格的115%
+      if (lastPrice >= buyPrice * this.RSI_T_TAKE_PROFIT) {
+        console.log(`卖出符合条件：${name} (${code}) - 当前价格高于买入价格的${this.RSI_T_TAKE_PROFIT * 100}%`);
+        return {code, name, close: lastPrice};
+      }
+      
+      // 4. 买入后出现3个十字星
+      // if (this.checkDojiCount(dataAfterBuy) >= this.RSI_T_DOJI_COUNT) {
+      //   console.log(`卖出符合条件：${name} (${code}) - 买入后出现${this.RSI_T_DOJI_COUNT}个十字星`);
+      //   return {code, name, close: lastPrice};
+      // }
+      
+      // 5. 最近15交易日内出现2个上T
+      if (this.checkUpTCount(data.slice(-this.RSI_T_UP_T_DAYS), this.RSI_T_UP_T_DAYS) >= this.RSI_T_UP_T_COUNT) {
+        console.log(`卖出符合条件：${name} (${code}) - 最近${this.RSI_T_UP_T_DAYS}交易日内出现${this.RSI_T_UP_T_COUNT}个上T`);
+        return {code, name, close: lastPrice};
+      }
+      
+    } catch (e) {
+      if ((e as any).errorSelfType === true) {
+        // Silently handle expected errors
+      } else {
+        console.error('Unexpected error during quantitativeSell_rsiT analysis:', e);
+        throw new Error('Unexpected error during quantitativeSell_rsiT analysis');
       }
     }
   }
