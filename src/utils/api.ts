@@ -1,4 +1,20 @@
 import {StockData} from '../interfaces/stock-data.interface';
+import {MaiRuiToken} from './MaiRuiToken';
+
+interface MaiRuiStockData {
+  d: string;  // 交易时间
+  o: number;  // 开盘价
+  h: number;  // 最高价
+  l: number;  // 最低价
+  c: number;  // 收盘价
+  v: number;  // 成交量
+  e: number;
+  zf: number;
+  hs: number;
+  zd: number;
+  zde: number;
+  ud: string;
+}
 /**
  * Formats raw stock data string into structured array
  * @param dataStr - Raw stock data string
@@ -24,6 +40,39 @@ function formatData(dataStr: string): StockData[] {
     close: Number(item[3]),
     volume: Number(item[4]),
   }));
+}
+
+/**
+ * Formats MaiRui API response data into standard StockData format
+ * @param data - Raw MaiRui API response data
+ * @returns Array of formatted stock data
+ */
+function formatMaiRuiData(data: MaiRuiStockData[]): StockData[] {
+  return data.map(item => ({
+    time: item.d,
+    open: item.o,
+    high: item.h,
+    low: item.l,
+    close: item.c,
+    volume: item.v * 100, // Convert from hands (手) to shares
+  }));
+}
+
+/**
+ * Gets the current date in YYYY-MM-DD format
+ */
+function getCurrentDate(): string {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Gets the date N days ago in YYYY-MM-DD format
+ */
+function getDateDaysAgo(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 /**
@@ -128,6 +177,69 @@ export async function getStock30DaysQuotation(
     return formatData(data.Result.newMarketData.marketData);
   } catch (error) {
     console.error('Request failed:', error.message, code, name);
+    return [];
+  }
+}
+
+
+/**
+ * Fetches all stock quotation data from MaiRui API
+ * @param code - Stock code
+ * @returns Formatted stock data array
+ */
+export async function getStockAllQuotationMaiRui(
+  code: string,
+  name: string,
+): Promise<StockData[]> {
+  console.log(`获取 ${name}(${code}) 的所有日K线数据 (MaiRui API)`);
+  let response: Response;
+  try {
+    const startDate = '2015-10-10';
+    const endDate = getCurrentDate();
+    const token = MaiRuiToken.getCurrentToken();
+    const url = `http://api.mairui.club/hszbc/fsjy/${code}/dn/${startDate}/${endDate}/${token}`;
+    // console.log(url, 'MaiRui API url');
+    response = await fetch(url, {method: 'GET'});
+    if (response.status === 429) {
+      console.log('MaiRui API rate limit exceeded, updating token...');
+      MaiRuiToken.updateToken();
+      return await getStockAllQuotationMaiRui(code, name);
+    }
+    const data: MaiRuiStockData[] = await response.json();
+    return formatMaiRuiData(data);
+  } catch (error) {
+    console.error('MaiRui Request failed:', error.message, code, response?.status);
+    return [];
+  }
+}
+
+/**
+ * Fetches 30 days of stock quotation data from MaiRui API
+ * @param code - Stock code
+ * @returns Formatted stock data array
+ */
+export async function getStock30DaysQuotationMaiRui(
+  code: string,
+  name: string,
+): Promise<StockData[]> {
+  console.log(`获取 ${name}(${code}) 的近30日K线数据 (MaiRui API)`);
+  let response: Response;
+  try {
+    const startDate = getDateDaysAgo(30);
+    const endDate = getCurrentDate();
+    const token = MaiRuiToken.getCurrentToken();
+    const url = `http://api.mairui.club/hszbc/fsjy/${code}/dn/${startDate}/${endDate}/${token}`;
+    // console.log(url, 'MaiRui API url');
+    response = await fetch(url, {method: 'GET'});
+    if (response.status === 429) {
+      console.log('MaiRui API rate limit exceeded, updating token...');
+      MaiRuiToken.updateToken();
+      return await getStock30DaysQuotationMaiRui(code, name);
+    }
+    const data: MaiRuiStockData[] = await response.json();
+    return formatMaiRuiData(data);
+  } catch (error) {
+    console.error('MaiRui Request failed:', error.message, code, response?.status);
     return [];
   }
 }

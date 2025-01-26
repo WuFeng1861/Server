@@ -10,8 +10,8 @@ import {AllStocks} from './entities/all-stocks.entity';
 import {CacheService} from './services/cache.service';
 import {Stock} from './entities/stock.entity';
 import {
-  getStock30DaysQuotation,
-  getStockAllQuotation,
+  getStock30DaysQuotation, getStock30DaysQuotationMaiRui,
+  getStockAllQuotation, getStockAllQuotationMaiRui,
 } from './utils/api';
 import {StockAnalysisService} from './services/stock-anlysis.service';
 import {StockData} from './interfaces/stock-data.interface';
@@ -47,7 +47,7 @@ export class AppService {
   ) {
   }
   getBackTestTypes(): string[] {
-    return ["成交量策略", "妖股回弹策略", "低位成交量放大策略", "三红增量", "RSI策略", "RSI-T策略"];
+    return ["成交量策略", "妖股回弹策略", "低位成交量放大策略", "三红增量", "RSI策略", "RSI-T策略", "RSI-LOW-T策略"];
   }
   async getBackTestResults(): Promise<BacktestResult[]> {
     const cacheKey = 'backTest-results';
@@ -299,10 +299,12 @@ export class AppService {
       }
     }
     if (update && cachedData.length === 0) {
-      updateData = await getStockAllQuotation(stockid, stockname, cookie, token);
+      // updateData = await getStockAllQuotation(stockid, stockname, cookie, token);
+      updateData = await getStockAllQuotationMaiRui(stockid, stockname);
     }
     if (update && cachedData.length > 0) {
-      updateData = await getStock30DaysQuotation(stockid, stockname, cookie, token);
+      // updateData = await getStock30DaysQuotation(stockid, stockname, cookie, token);
+      updateData = await getStock30DaysQuotationMaiRui(stockid, stockname);
     }
     for (let i = 0; i < updateData.length; i++) {
       const item = updateData[i];

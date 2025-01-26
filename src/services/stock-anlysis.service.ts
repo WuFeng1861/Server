@@ -15,7 +15,7 @@ interface StockMonthMinMax {
 
 @Injectable()
 export class StockAnalysisService {
-  private readonly STOCK_MIN_TOP_PRICE = 0.0996;// 涨停最小幅度9.96%
+  private readonly STOCK_MIN_TOP_PRICE = 0.099;// 涨停最小幅度9.96%
   private readonly MONTH_GROWTH_RATIO = 3; // 月涨幅倍数
   private readonly THREE_MONTHS_LOW_PERCENT = 0.35; // 当前价格处于最近3个月的最高最低的区间
   private readonly VOLUME_RATIO = 0.2; // 30天平均成交量的和最近5天的平均成交量的比例
@@ -52,6 +52,18 @@ export class StockAnalysisService {
   private readonly RSI_T_PRICE_RANGE = 0.15; // RSI-T价格区间比例
   private readonly RSI_T_PRICE_RANGE_YEARS = 3; // RSI-T价格区间年数
   private readonly T_SHAPE_RATIO = 0.2; // T形态比例
+  
+  // RSI-Low-T策略参数
+  private readonly RSI_LOW_T_BUY = 15; // RSI买入阈值
+  private readonly RSI_LOW_T_SELL = 75; // RSI卖出阈值
+  private readonly RSI_LOW_T_PROFIT_RATIO = 1.25; // 止盈比例
+  private readonly RSI_LOW_T_PRICE_STAGES = 10; // 价格阶段数
+  private readonly RSI_LOW_T_BOTTOM_STAGES = 2; // 底部阶段数
+  private readonly RSI_LOW_T_MIN_TIME_RATIO = 0.20; // 最小时间占比
+  private readonly RSI_LOW_T_UP_T_COUNT = 2; // 上T数量
+  private readonly RSI_LOW_T_UP_T_DAYS = 15; // 上T检查天数
+  private readonly RSI_LOW_T_DECLINE_PERIODS = 8; // 检查最近8个5日期间
+  private readonly RSI_LOW_T_MIN_DECLINE_COUNT = 6; // 最少下跌期数
   
   constructor(
     private cacheService: CacheService,
@@ -448,20 +460,20 @@ export class StockAnalysisService {
     //   return false;
     // }
     // return true;
-  
+    
     // 解析数据
     const {open, close, high, low} = data;
-  
+    
     // 计算影线长度
     const upperShadow = high - Math.max(open, close);
     const lowerShadow = Math.min(open, close) - low;
-  
+    
     // 计算开盘价和收盘价的差值
     const priceDifference = Math.abs(open - close);
-  
+    
     // 计算价格波动范围
     const priceRange = high - low;
-  
+    
     // 定义影线长度和价格差的相对阈值
     const shadowThreshold = 0.3; // 影线长度占价格波动范围的30%
     const priceDiffThreshold = 0.05; // 价格差占价格波动范围的5%
@@ -480,7 +492,7 @@ export class StockAnalysisService {
     // return priceGap < highGap * this.T_SHAPE_RATIO;
     // 解析数据
     const {open, close, high, low} = data;
-  
+    
     // 计算影线长度
     const upperShadow = high - Math.max(open, close);
     // 计算开盘价和收盘价的差值
@@ -509,7 +521,7 @@ export class StockAnalysisService {
     // return priceGap < lowGap * this.T_SHAPE_RATIO;
     // 解析数据
     const {open, close, high, low} = data;
-  
+    
     // 计算影线长度
     const lowerShadow = Math.min(open, close) - low;
     // 计算开盘价和收盘价的差值
@@ -561,10 +573,15 @@ export class StockAnalysisService {
     if (type === 5) {
       return await this.quantitativeBuy_rsi(stockData, code, name);
     }
-  
+    
     // 6. RSI-T策略
     if (type === 6) {
       return await this.quantitativeBuy_rsiT(stockData, code, name);
+    }
+    
+    // 7. RSI-LOW-T策略
+    if (type === 7) {
+      return await this.quantitativeBuy_rsiLowT(stockData, code, name);
     }
   }
   
@@ -590,6 +607,11 @@ export class StockAnalysisService {
     // 6. RSI-T策略
     if (type === 6) {
       return await this.quantitativeSell_rsiT(stockData, code, name, buyPrice, new Date(buyTime));
+    }
+    
+    // 7. RSI-LOW-T策略
+    if (type === 7) {
+      return await this.quantitativeSell_rsiLowT(stockData, code, name, buyPrice);
     }
   }
   
@@ -817,13 +839,14 @@ export class StockAnalysisService {
     return priceGap >= yesterdayPrice * this.STOCK_MIN_TOP_PRICE;
   }
   
-  private calculateRSI(stockData: StockData[], code: string|null = null, days: number = 12): number {
+  // 计算RSI
+  private calculateRSI(stockData: StockData[], code: string | null = null, days: number = 12): number {
     if (days < 1 || stockData.length < days + 1) {
       this.selfError('RSI计算参数错误：' + `days=${days}, stockData.length=${stockData.length}`);
     }
-    const useData = stockData.slice(-days-40);
-    const rsiList = calcRsi(useData.map(item => item.close))
-    return rsiList[rsiList.length-1];
+    const useData = stockData.slice(-days - 40);
+    const rsiList = calcRsi(useData.map(item => item.close));
+    return rsiList[rsiList.length - 1];
   }
   
   // 检查最近N天内上T的数量
@@ -849,6 +872,85 @@ export class StockAnalysisService {
     
     if (lastData.close > minPrice + priceRange * this.RSI_T_PRICE_RANGE) {
       this.selfError(`${name} (${code}) - 当前价格高于3年区间低位15%`);
+    }
+  }
+  
+  // 检查价格是否在3年底部阶段
+  private checkPriceInBottomStages(data: StockData[], code: string, name: string): void {
+    const tradingDays = 3 * 243;
+    let threeYearData = data.slice(-tradingDays);
+    
+    if (threeYearData.length < tradingDays / 3) {
+      this.selfError(`${name} (${code}) - 数据不足1年`);
+    }
+    
+    const removeCount = 7;
+    // Sort data by high price and remove 10 highest values
+    const highPrices = threeYearData.map(item => item.high).sort((a, b) => b - a);
+    const maxPrice = highPrices[removeCount]; // Get the 4th highest price
+  
+    // Sort data by low price and remove 10 lowest values
+    const lowPrices = threeYearData.map(item => item.low).sort((a, b) => a - b);
+    const minPrice = lowPrices[removeCount]; // Get the 4th lowest price
+  
+    // Filter out data points with extreme values
+    threeYearData = threeYearData.filter(item =>
+      item.high <= highPrices[removeCount] && item.low >= lowPrices[removeCount]
+    );
+    const priceRange = maxPrice - minPrice;
+    const stageSize = priceRange / this.RSI_LOW_T_PRICE_STAGES;
+    
+    const stageCounts = new Array(this.RSI_LOW_T_PRICE_STAGES).fill(0);
+    threeYearData.forEach(item => {
+      const stageIndex = Math.floor((item.close - minPrice) / stageSize);
+      const safeIndex = Math.min(Math.max(stageIndex, 0), this.RSI_LOW_T_PRICE_STAGES - 1);
+      stageCounts[safeIndex]++;
+    });
+    
+    const bottomStagesCount = stageCounts.slice(0, this.RSI_LOW_T_BOTTOM_STAGES).reduce((a, b) => a + b, 0);
+    const timeRatio = bottomStagesCount / threeYearData.length;
+    
+    const currentPrice = data[data.length - 1].close;
+    const currentStage = Math.floor((currentPrice - minPrice) / stageSize);
+    
+    if (currentStage >= this.RSI_LOW_T_BOTTOM_STAGES) {
+      this.selfError(`${name} (${code}) - 当前价格不在底部${this.RSI_LOW_T_BOTTOM_STAGES}个阶段内`);
+    }
+    
+    if (timeRatio < this.RSI_LOW_T_MIN_TIME_RATIO) {
+      this.selfError(`${name} (${code}) - 底部阶段时间占比${(timeRatio * 100).toFixed(2)}%小于${this.RSI_LOW_T_MIN_TIME_RATIO * 100}%`);
+    }
+    if (code === '603517') {
+      console.log('-------------------------------------------------------------------------------');
+      console.log(bottomStagesCount, timeRatio, currentStage, '绝味食品');
+      console.log(highPrices[removeCount]);
+      console.log(lowPrices[removeCount]);
+      console.log('-------------------------------------------------------------------------------');
+    }
+  }
+  
+  // 检查价格是否是在阴跌
+  private checkFiveDayDeclinePeriods(data: StockData[], code: string, name: string): void {
+    // 需要至少 8个5日期间 + 1天的数据
+    if (data.length < this.RSI_LOW_T_DECLINE_PERIODS * 4 + 1) {
+      this.selfError(`${name} (${code}) - 历史数据不足${this.RSI_LOW_T_DECLINE_PERIODS * 4 + 1}天`);
+    }
+    
+    let declineCount = 0;
+    // 检查最近8个5日期间
+    for (let i = 0; i < this.RSI_LOW_T_DECLINE_PERIODS; i++) {
+      const periodStart = data.length - 5 - (i * 4);
+      const periodEnd = data.length - (i * 4);
+      const periodData = data.slice(periodStart, periodEnd);
+      
+      // 如果收盘价下跌，计数加1
+      if (periodData[periodData.length - 1].close < periodData[0].close) {
+        declineCount++;
+      }
+    }
+    
+    if (declineCount >= this.RSI_LOW_T_MIN_DECLINE_COUNT) {
+      this.selfError(`${name} (${code}) - 最近${this.RSI_LOW_T_DECLINE_PERIODS}个5日期间中有${declineCount}个下跌期间，大于等于要求的${this.RSI_LOW_T_MIN_DECLINE_COUNT}个`);
     }
   }
   
@@ -1140,7 +1242,7 @@ export class StockAnalysisService {
       
       // 3. 价格在3年区间的低位
       this.checkPriceInThreeYearRange(data, code, name);
-  
+      
       // 4. 15日内不允许出现上T
       if (this.checkUpTCount(data.slice(-this.RSI_T_UP_T_DAYS), this.RSI_T_UP_T_DAYS) >= 1) {
         this.selfError(`${name} (${code}) - 15日内出现过上T`);
@@ -1214,6 +1316,90 @@ export class StockAnalysisService {
       } else {
         console.error('Unexpected error during quantitativeSell_rsiT analysis:', e);
         throw new Error('Unexpected error during quantitativeSell_rsiT analysis');
+      }
+    }
+  }
+  
+  // RSI-Low-T买入策略
+  async quantitativeBuy_rsiLowT(
+    data: StockData[],
+    code: string,
+    name: string,
+  ): Promise<QuantitativeBuyResult | undefined> {
+    try {
+      
+      // 0. 检查是否在阴跌
+      this.checkFiveDayDeclinePeriods(data, code, name);
+      
+      // 1. 检查价格是否在底部阶段且时间占比符合要求
+      this.checkPriceInBottomStages(data, code, name);
+      
+      // 2. 当天是下T形态
+      if (!this.checkIsDownTShape(data[data.length - 1])) {
+        this.selfError(`${name} (${code}) - 当天不是下T形态`);
+      }
+      
+      // 3. 15日内不允许出现上T
+      if (this.checkUpTCount(data.slice(-this.RSI_LOW_T_UP_T_DAYS), this.RSI_LOW_T_UP_T_DAYS) >= 1) {
+        this.selfError(`${name} (${code}) - ${this.RSI_LOW_T_UP_T_DAYS}日内出现过上T`);
+      }
+      
+      // 4. RSI低于15
+      const rsi14 = this.calculateRSI(data, code);
+      if (rsi14 > this.RSI_LOW_T_BUY) {
+        this.selfError(`${name} (${code}) - RSI值${rsi14}大于${this.RSI_LOW_T_BUY}`);
+      }
+      
+      return {
+        code,
+        name,
+        lastPrice: data[data.length - 1].close,
+      };
+    } catch (e) {
+      if ((e as any).errorSelfType === true) {
+        // Silently handle expected errors
+      } else {
+        console.error('Unexpected error during quantitativeBuy_rsiLowT analysis:', e);
+        throw new Error('Unexpected error during quantitativeBuy_rsiLowT analysis');
+      }
+    }
+  }
+  
+  // RSI-Low-T卖出策略
+  async quantitativeSell_rsiLowT(
+    data: StockData[],
+    code: string,
+    name: string,
+    buyPrice: number,
+  ): Promise<QuantitativeSellResult | undefined> {
+    try {
+      const lastPrice = data[data.length - 1].close;
+      
+      // 1. RSI大于75 且当天没有涨停
+      const rsi14 = this.calculateRSI(data);
+      if (rsi14 >= this.RSI_LOW_T_SELL && !this.checkIsTop(data)) {
+        console.log(`卖出符合条件：${name} (${code}) - RSI值${rsi14}大于等于${this.RSI_LOW_T_SELL}, 且当天没有涨停`);
+        return {code, name, close: lastPrice};
+      }
+      
+      // 2. 价格高于买入价格的120%
+      if (lastPrice >= buyPrice * this.RSI_LOW_T_PROFIT_RATIO) {
+        console.log(`卖出符合条件：${name} (${code}) - 当前价格高于买入价格的${this.RSI_LOW_T_PROFIT_RATIO * 100}%`);
+        return {code, name, close: lastPrice};
+      }
+      
+      // 3. 最近15交易日内出现2个上T
+      // if (this.checkUpTCount(data.slice(-this.RSI_LOW_T_UP_T_DAYS), this.RSI_LOW_T_UP_T_DAYS) >= this.RSI_LOW_T_UP_T_COUNT) {
+      //   console.log(`卖出符合条件：${name} (${code}) - 最近${this.RSI_LOW_T_UP_T_DAYS}交易日内出现${this.RSI_LOW_T_UP_T_COUNT}个上T`);
+      //   return {code, name, close: lastPrice};
+      // }
+      
+    } catch (e) {
+      if ((e as any).errorSelfType === true) {
+        // Silently handle expected errors
+      } else {
+        console.error('Unexpected error during quantitativeSell_rsiLowT analysis:', e);
+        throw new Error('Unexpected error during quantitativeSell_rsiLowT analysis');
       }
     }
   }
