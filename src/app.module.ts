@@ -1,5 +1,6 @@
 import {Module} from '@nestjs/common';
 import {TypeOrmModule} from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
 import {AppController} from './app.controller';
 import {AppService} from './app.service';
 import {PriceRange} from './entities/price-range.entity';
@@ -14,9 +15,14 @@ import {StockBackTestService} from './services/stock-back-test.service';
 import {MockStockHoldingService} from './services/mock-stock-holding.service';
 import {MockStockHolding} from './entities/mock-stock-holding.entity';
 import {BacktestResult} from './entities/backtest-result.entity';
+import {SystemModule} from './system/system.module';
+import {ProjectReportingModule} from './project-reporting/project-reporting.module';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     TypeOrmModule.forRoot({
       type: 'mysql',
       host: 'localhost',
@@ -46,6 +52,8 @@ import {BacktestResult} from './entities/backtest-result.entity';
       MockStockHolding,
       BacktestResult
     ]),
+    SystemModule,
+    ProjectReportingModule
   ],
   controllers: [AppController],
   providers: [AppService, CacheService, StockAnalysisService, StockBackTestService, MockStockHoldingService],

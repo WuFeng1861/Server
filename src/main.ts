@@ -16,7 +16,7 @@ async function bootstrap() {
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
-  await app.listen(3000);
+  await app.listen(process.env.PORT || 3000);
   console.log('程序已启动，监听端口 3000: http://localhost:3000');
 }
 bootstrap();
