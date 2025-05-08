@@ -39,7 +39,7 @@ export class ProjectReportingService implements OnModuleInit {
       const data = {
         serviceName: 'stock-service',
         serverIp,
-        servicePort: process.env.PORT || 3000,
+        servicePort: 11980,
         serviceNotes: 'quantitative stocks service',
         serviceRuntime: runtimeSeconds,
         serviceDescription: 'NestJS Quantitative Stocks Service with MySQL',
